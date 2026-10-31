@@ -1,9 +1,7 @@
 import { login, logout, getInfo } from '@/api/login'
-import { getToken, setToken, removeToken } from '@/utils/auth'
 
 const user = {
   state: {
-    token: getToken(),
     name: '',
     avatar: '',
     roles: [],
@@ -11,9 +9,6 @@ const user = {
   },
 
   mutations: {
-    SET_TOKEN: (state, token) => {
-      state.token = token
-    },
     SET_NAME: (state, name) => {
       state.name = name
     },
@@ -29,16 +24,14 @@ const user = {
   },
 
   actions: {
-    // 登录
+    // 登录（认证由服务端 Session Cookie 维持，前端不再保存任何 token）
     Login({ commit }, userInfo) {
       const username = userInfo.username.trim()
       const password = userInfo.password
       const code = userInfo.code
       const uuid = userInfo.uuid
       return new Promise((resolve, reject) => {
-        login(username, password, code, uuid).then(res => {
-          setToken(res.token)
-          commit('SET_TOKEN', res.token)
+        login(username, password, code, uuid).then(() => {
           resolve()
         }).catch(error => {
           reject(error)
@@ -70,14 +63,15 @@ const user = {
     // 退出系统
     LogOut({ commit, state }) {
       return new Promise((resolve, reject) => {
-        logout(state.token).then(() => {
-          commit('SET_TOKEN', '')
+        logout().then(() => {
           commit('SET_ROLES', [])
           commit('SET_PERMISSIONS', [])
-          removeToken()
           resolve()
         }).catch(error => {
           reject(error)
+        }).finally(() => {
+          commit('SET_ROLES', [])
+          commit('SET_PERMISSIONS', [])
         })
       })
     },
@@ -85,8 +79,8 @@ const user = {
     // 前端 登出
     FedLogOut({ commit }) {
       return new Promise(resolve => {
-        commit('SET_TOKEN', '')
-        removeToken()
+        commit('SET_ROLES', [])
+        commit('SET_PERMISSIONS', [])
         resolve()
       })
     }

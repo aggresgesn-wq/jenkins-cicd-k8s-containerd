@@ -10,6 +10,7 @@ from .. import  db
 from flask_login import login_required
 from .. import permission
 import flask_excel as excel
+from ..security import transactional
 
 @base.route('/system/dict/type/list', methods=['GET'])
 @login_required
@@ -48,6 +49,7 @@ def sysdict_type_get_by_id(id):
 @base.route('/system/dict/type', methods=['POST'])
 @login_required
 @permission('system:dict:add')
+@transactional
 def sysdict_type_add():
     dictType = DictType()
 
@@ -68,6 +70,7 @@ def sysdict_type_add():
 @base.route('/system/dict/type', methods=['PUT'])
 @login_required
 @permission('system:dict:edit')
+@transactional
 def sysdict_type_update():
     dictType = DictType.query.get(request.json['dictId'])
 
@@ -86,6 +89,7 @@ def sysdict_type_update():
 @base.route('/system/dict/type/<string:ids>', methods=['DELETE'])
 @login_required
 @permission('system:dict:remove')
+@transactional
 def sytype_delete(ids):
     idList = ids.split(',')
     for id in idList:
@@ -105,6 +109,7 @@ def sysdict_type_all():
 @base.route('/system/dict/type/export', methods=['POST'])
 @login_required
 @permission('system:dict:export')
+@transactional
 def sysdict_type_export():
     rows = []
     rows.append(['字典编号', '字典名称', '字典类型', '状态', '备注', '创建时间'])

@@ -1,6 +1,12 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "AuthBase"
-version = "2.1"
+version = "2.2"
+description = "Flask 后台权限管理系统（RBAC + Vue 2 前端）"
+requires-python = ">=3.10"
 dependencies = [
     "flask==2.2.5",
     "flask-excel==0.0.7",
@@ -8,6 +14,7 @@ dependencies = [
     "flask-moment==1.0.5",
     "flask-simple-captcha==5.5.5",
     "flask-sqlalchemy==3.0.2",
+    "gunicorn==22.0.0",
     "mysql-connector-python==8.0.33",
     "psutil==5.9.0",
     "pyexcel-xlsx==0.6.0",
@@ -15,3 +22,23 @@ dependencies = [
     "werkzeug==2.3.0",
 ]
 
+[project.optional-dependencies]
+dev = [
+    "pytest==8.3.3",
+    "ruff==0.6.9",
+]
+
+[tool.setuptools.packages.find]
+include = ["app*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+addopts = "-ra"
+filterwarnings = [
+    "ignore::DeprecationWarning",
+]
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"

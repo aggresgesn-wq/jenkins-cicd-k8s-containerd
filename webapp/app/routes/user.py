@@ -4,8 +4,10 @@ from ..models import User, Organization, Role, OnLine, Config
 from flask import render_template, request
 from flask import g, jsonify
 import hashlib
+import hmac
 from flask_login import login_user, logout_user, login_required, \
     current_user
+from flask import session
 from datetime import datetime
 from .. import  db
 import uuid
@@ -14,6 +16,7 @@ from sqlalchemy import desc
 from sqlalchemy import text
 import flask_excel as excel
 from .. import permission
+from ..security import AVATAR_ALLOWED_TYPES, AVATAR_MAX_BYTES, login_throttle, rotate_csrf_token
 from ..operationlog import log_operation
 import os
 from .. import captcha
@@ -24,12 +27,14 @@ from concurrent.futures import ThreadPoolExecutor
 import threading
 from flask import current_app
 from app import setup_logger
+from ..security import transactional
 
 logger = setup_logger(__name__)
 
 @base.route('/system/user/authRole', methods=['PUT'])
 @login_required
 @permission('system:role:edit')
+@transactional
 def grant_user_role():
     id = request.args['userId']
     ids = request.args['roleIds']
@@ -134,37 +139,54 @@ def get_browser_from_user_agent(user_agent):
 
 @base.route('/logout', methods=['POST'])
 @login_required
+@transactional
 def do_logout():
     record_login_history(0)
     logout_user()
+    session.clear()
     return jsonify({'success': True})
 
 @base.route('/login', methods=['POST'])
+@transactional
 def do_login():
+    payload = request.get_json(silent=True) or {}
+    username = (payload.get('username') or '').strip()
+    password = payload.get('password') or ''
+
+    if not username or not password:
+        return jsonify({'code': 400, 'msg': '用户名和密码不能为空'}), 400
+
+    if login_throttle.locked(username):
+        return jsonify({'code': 429, 'msg': '登录失败次数过多，请稍后再试'}), 429
+
     config = Config.query.filter(Config.config_key == 'sys.account.captchaOnOff').first()
     if config and config.config_value == 'true':
-        if 'ONLY_UPPERCASE' in captcha.config and captcha.config['ONLY_UPPERCASE'] is True:
-            code = request.json.get('code', '').upper()
-        else:
-            code = request.json.get('code', '')
-            
-        if not captcha.verify(code, request.json['uuid']):
-            return jsonify({'msg': '验证码错误~', 'code': 400})
+        code = payload.get('code', '')
+        if captcha.config.get('ONLY_UPPERCASE') is True:
+            code = code.upper()
 
-    #检查用户名是否存在
-    user = User.query.filter_by(LOGINNAME=request.json['username']).first()
-    
-    if user is not None:
-        if user.STATUS != '0':
-            return jsonify({'msg': '登录失败,账号未激活~请联系管理员', 'code': 400})
-        salt = bytes.fromhex(user.SALT)
-        hash = hash_password(request.json['password'], salt).hex()
-        #MD5加密后的内容同数据库密码比较
-        if hash == user.PWD:
-            login_user(user)
-            record_login_history(1)
-            return jsonify({'msg': '登录成功~', 'code': 200, 'url': '/', 'token': str(uuid.uuid4())})
-    return jsonify({'msg': '登录失败,账号密码错误~', 'code': 500})
+        if not captcha.verify(code, payload.get('uuid', '')):
+            return jsonify({'msg': '验证码错误~', 'code': 400}), 400
+
+    user = User.query.filter_by(LOGINNAME=username).first()
+
+    # 账号不存在、未激活、密码错误统一返回同一条消息，避免账号枚举
+    if user is None or user.STATUS != '0':
+        login_throttle.register_failure(username)
+        return jsonify({'msg': '登录失败,账号密码错误~', 'code': 401}), 401
+
+    salt = bytes.fromhex(user.SALT)
+    expected = hash_password(password, salt).hex()
+    if not hmac.compare_digest(expected, user.PWD or ''):
+        login_throttle.register_failure(username)
+        return jsonify({'msg': '登录失败,账号密码错误~', 'code': 401}), 401
+
+    login_throttle.reset(username)
+    session.clear()  # 防会话固定
+    login_user(user)
+    rotate_csrf_token()
+    record_login_history(1)
+    return jsonify({'msg': '登录成功~', 'code': 200, 'url': '/'})
 
 @base.route('/system/user/list', methods=['GET'])
 @login_required
@@ -218,6 +240,7 @@ def user_grid():
 
 @base.route('/system/user/', methods=['GET'])
 @login_required
+@permission('system:user:list')
 def syuser_get():
     json = {'code': 200, 'msg': ''}
     json['roles'] = [role.to_json() for role in Role.query.all()]
@@ -243,6 +266,7 @@ def syuser_getById(id):
 @base.route('/system/user', methods=['PUT'])
 @login_required
 @permission('system:user:edit')
+@transactional
 def syuser_update():
     id = request.json['userId']
     userName = request.json['userName']
@@ -277,6 +301,7 @@ def hash_password(password, salt):
 @base.route('/system/user', methods=['POST'])
 @login_required
 @permission('system:user:add')
+@transactional
 def syuser_save():
     if User.query.filter_by(LOGINNAME = request.json['userName']).first():
         return jsonify({'success': False, 'msg': '新建用户失败，用户名已存在！'})
@@ -307,6 +332,7 @@ def syuser_save():
     return jsonify({'code': 200, 'msg': '新建用户成功！'})
 
 @base.route('/register', methods=['POST'])
+@transactional
 def syuser_register():
     if User.query.filter_by(LOGINNAME = request.json['username']).first():
         return jsonify({'success': False, 'msg': '注册用户失败，用户名已存在！'})
@@ -334,6 +360,7 @@ def syuser_register():
 @base.route('/system/user/<id>', methods=['DELETE'])
 @login_required
 @permission('system:user:remove')
+@transactional
 def syuser_delete(id):
     user = User.query.get(id)
     if user:
@@ -341,19 +368,28 @@ def syuser_delete(id):
 
     return jsonify({'code': 200, 'msg': '删除成功'})
 
-@base.route('/system/user/profile/updatePwd', methods=['PUT']) 
+@base.route('/system/user/profile/updatePwd', methods=['PUT'])
 @login_required
 @log_operation('修改密码')
+@transactional
 def syuser_update_pwd():
+    # 密码走请求体（JSON/form），不再从 URL 查询参数读取，避免被访问日志记录
+    payload = request.get_json(silent=True) or request.form or request.args
+    old_password = payload.get('oldPassword') or ''
+    new_password = payload.get('newPassword') or ''
+
+    if len(new_password) < 8:
+        return jsonify({'code': 400, 'msg': '新密码长度不能少于 8 位'}), 400
+
     user = User.query.get(current_user.ID)
 
     if user:
         salt = bytes.fromhex(user.SALT)
-        hash = hash_password(request.args.get('oldPassword'), salt).hex()
-        if hash != user.PWD:
-            return jsonify({'code': 400, 'msg': '旧密码错误'})
+        hash = hash_password(old_password, salt).hex()
+        if not hmac.compare_digest(hash, user.PWD or ''):
+            return jsonify({'code': 400, 'msg': '旧密码错误'}), 400
 
-        user.PWD = hash_password(request.args.get('newPassword'), salt).hex()
+        user.PWD = hash_password(new_password, salt).hex()
         db.session.add(user)
     return jsonify({'code': 200, 'msg': '修改成功'})
 
@@ -389,16 +425,18 @@ def syuser_profile():
 
 @base.route('/system/user/profile', methods=['PUT'])
 @login_required
+@transactional
 def syuser_update_profile():
-    id = request.json['userId']
-    userName = request.json['userName']
-    user = User.query.get(id)
+    # 只能修改当前登录用户自己的资料：忽略客户端传入的 userId/userName，
+    # 否则任何登录用户都能改别人的邮箱、手机号。
+    payload = request.get_json(silent=True) or {}
+    user = User.query.get(current_user.ID)
 
     user.UPDATEDATETIME = datetime.now()
-    if 'nickName' in request.json: user.NAME = request.json['nickName'] 
-    if 'sex' in request.json: user.SEX = request.json['sex']
-    if 'email' in request.json: user.EMAIL = request.json['email']
-    if 'phonenumber' in request.json: user.PHONENUMBER = request.json['phonenumber']
+    if 'nickName' in payload: user.NAME = payload['nickName']
+    if 'sex' in payload: user.SEX = payload['sex']
+    if 'email' in payload: user.EMAIL = payload['email']
+    if 'phonenumber' in payload: user.PHONENUMBER = payload['phonenumber']
 
     db.session.add(user)
 
@@ -406,6 +444,7 @@ def syuser_update_profile():
 
 @base.route('/system/user/authRole/<id>', methods=['GET'])
 @login_required
+@permission('system:user:query')
 def syuser_auth_role(id):
     user = User.query.get(id)
     userRoles = [role for role in user.roles]
@@ -419,6 +458,8 @@ def syuser_auth_role(id):
 
 @base.route('/base/syuser/export', methods=['POST'])
 @login_required
+@permission('system:user:export')
+@transactional
 def user_export():
     rows = []
     rows.append(['登录名', '姓名', '创建时间', '修改时间', '性别'])
@@ -443,6 +484,7 @@ def user_export():
 @base.route('/system/user/changeStatus', methods=['PUT'])
 @login_required
 @permission('system:user:edit')
+@transactional
 def syuser_status_update():
     user = User.query.get(request.json['userId'])
 
@@ -452,19 +494,49 @@ def syuser_status_update():
 
     return jsonify({'code': 200, 'msg': '操作成功'})
 
+def _detect_image_type(raw: bytes):
+    """按文件头判断真实图片类型，不信任客户端文件名与 Content-Type。"""
+    if raw.startswith(b"\xff\xd8\xff"):
+        return "jpeg"
+    if raw.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "png"
+    if raw.startswith(b"GIF87a") or raw.startswith(b"GIF89a"):
+        return "gif"
+    if raw[:4] == b"RIFF" and raw[8:12] == b"WEBP":
+        return "webp"
+    return None
+
+
 @base.route('/system/user/profile/avatar', methods=['POST'])
+@login_required
+@transactional
 def syuser_avatar_update():
+    if 'avatarfile' not in request.files:
+        return jsonify({'code': 400, 'msg': '未选择头像文件'}), 400
+
     file = request.files['avatarfile']
-    filename = str(uuid.uuid4()) + ".jpg"
-    file.save(os.path.join(get_upload_path(), filename))
+    raw = file.read(AVATAR_MAX_BYTES + 1)
+    if not raw:
+        return jsonify({'code': 400, 'msg': '上传文件为空'}), 400
+    if len(raw) > AVATAR_MAX_BYTES:
+        return jsonify({'code': 413, 'msg': '头像大小不能超过 2MB'}), 413
+
+    image_type = _detect_image_type(raw)
+    if image_type is None:
+        return jsonify({'code': 415, 'msg': '仅支持 JPG/PNG/GIF/WebP 格式的图片'}), 415
+
+    filename = f"{uuid.uuid4().hex}.{AVATAR_ALLOWED_TYPES[image_type]}"
+    with open(os.path.join(get_upload_path(), filename), 'wb') as fh:
+        fh.write(raw)
 
     current_user.PHOTO = '/system/user/profile/avatar/' + filename
     db.session.add(current_user)
     db.session.commit()
 
-    return jsonify({'msg': '操作成功', 'code': 200, 'imgUrl':  current_user.PHOTO})
+    return jsonify({'msg': '操作成功', 'code': 200, 'imgUrl': current_user.PHOTO})
 
 @base.route('/system/user/profile/avatar/<filename>', methods=['GET'])
+@login_required
 def sysuser_avatar_preview(filename):
     try:
         filename = secure_filename(filename)

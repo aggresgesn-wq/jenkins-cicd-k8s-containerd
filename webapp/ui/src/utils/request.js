@@ -1,7 +1,6 @@
 import axios from 'axios'
 import { Notification, MessageBox, Message, Loading } from 'element-ui'
 import store from '@/store'
-import { getToken } from '@/utils/auth'
 import errorCode from '@/utils/errorCode'
 import { tansParams, blobValidate } from "@/utils/ruoyi";
 import cache from '@/plugins/cache'
@@ -11,24 +10,56 @@ let downloadLoadingInstance;
 // 是否显示重新登录
 export let isRelogin = { show: false };
 
+// 读取后端下发的 CSRF 令牌（双提交 Cookie 方案）
+function getCsrfToken() {
+  const match = document.cookie.match(/(?:^|;\s*)XSRF-TOKEN=([^;]*)/)
+  return match ? decodeURIComponent(match[1]) : ''
+}
+
+// 会话过期时统一切到登录页
+function reLogin() {
+  if (isRelogin.show) {
+    return
+  }
+  isRelogin.show = true
+  MessageBox.confirm('登录状态已过期，您可以继续留在该页面，或者重新登录', '系统提示', {
+    confirmButtonText: '重新登录',
+    cancelButtonText: '取消',
+    type: 'warning'
+  }).then(() => {
+    isRelogin.show = false
+    store.dispatch('LogOut').finally(() => {
+      location.href = '/index'
+    })
+  }).catch(() => {
+    isRelogin.show = false
+  })
+}
+
 axios.defaults.headers['Content-Type'] = 'application/json;charset=utf-8'
 // 创建axios实例
 const service = axios.create({
   // axios中请求配置有baseURL选项，表示请求URL公共部分
   baseURL: process.env.VUE_APP_BASE_API,
+  // 认证依赖 Flask Session Cookie，跨域/子路径场景下也要带上凭据
+  withCredentials: true,
   // 超时
   timeout: 10000
 })
 
 // request拦截器
 service.interceptors.request.use(config => {
-  // 是否需要设置 token
-  const isToken = (config.headers || {}).isToken === false
   // 是否需要防止数据重复提交
   const isRepeatSubmit = (config.headers || {}).repeatSubmit === false
-  if (getToken() && !isToken) {
-    config.headers['Authorization'] = 'Bearer ' + getToken() // 让每个请求携带自定义token 请根据实际情况自行修改
+
+  // 会话认证由 Cookie 承担，这里只需要为写请求补上 CSRF 令牌
+  if (config.method && config.method.toLowerCase() !== 'get') {
+    const csrfToken = getCsrfToken()
+    if (csrfToken) {
+      config.headers['X-XSRF-TOKEN'] = csrfToken
+    }
   }
+
   // get请求映射params参数
   if (config.method === 'get' && config.params) {
     let url = config.url + '?' + tansParams(config.params);
@@ -62,7 +93,7 @@ service.interceptors.request.use(config => {
   return config
 }, error => {
     console.log(error)
-    Promise.reject(error)
+    return Promise.reject(error)
 })
 
 // 响应拦截器
@@ -76,23 +107,14 @@ service.interceptors.response.use(res => {
       return res.data
     }
     if (code === 401) {
-      if (!isRelogin.show) {
-        isRelogin.show = true;
-        MessageBox.confirm('登录状态已过期，您可以继续留在该页面，或者重新登录', '系统提示', {
-          confirmButtonText: '重新登录',
-          cancelButtonText: '取消',
-          type: 'warning'
-        }
-      ).then(() => {
-        isRelogin.show = false;
-        store.dispatch('LogOut').then(() => {
-          location.href = '/index';
-        })
-      }).catch(() => {
-        isRelogin.show = false;
-      });
-    }
+      reLogin()
       return Promise.reject('无效的会话，或者会话已过期，请重新登录。')
+    } else if (code === 403) {
+      Message({
+        message: res.data.msg || '当前操作没有权限',
+        type: 'error'
+      })
+      return Promise.reject(new Error(res.data.msg || '当前操作没有权限'))
     } else if (code === 500) {
       Message({
         message: msg,
@@ -109,6 +131,20 @@ service.interceptors.response.use(res => {
     }
   },
   error => {
+    const status = error.response && error.response.status
+    const payload = (error.response && error.response.data) || {}
+
+    // 后端对未登录返回真实 HTTP 401，无权限返回 403
+    if (status === 401) {
+      reLogin()
+      return Promise.reject('无效的会话，或者会话已过期，请重新登录。')
+    }
+    if (status === 403) {
+      const forbiddenMsg = payload.msg || '当前操作没有权限'
+      Message({ message: forbiddenMsg, type: 'error' })
+      return Promise.reject(new Error(forbiddenMsg))
+    }
+
     console.log('err' + error)
     let { message } = error;
     if (message == "Network Error") {

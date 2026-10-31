@@ -10,9 +10,11 @@ from .. import  db
 from flask_login import login_required
 from .. import permission
 import flask_excel as excel
+from ..security import transactional
 
 @base.route('/system/dict/data/type/<dictType>', methods=['GET'])
 @login_required
+@permission('system:dict:query')
 def sysdictdata_get_by_type(dictType):
     data_list = DictData.query.filter(DictData.dict_type == dictType)
 
@@ -51,6 +53,7 @@ def sysdict_data_get_by_id(id):
 @base.route('/system/dict/data', methods=['POST'])
 @login_required
 @permission('system:dict:add')
+@transactional
 def sysdict_data_add():
     dictData = DictData()
 
@@ -71,6 +74,7 @@ def sysdict_data_add():
 @base.route('/system/dict/data', methods=['PUT'])
 @login_required
 @permission('system:dict:edit')
+@transactional
 def sysdict_data_update():
     dictData = DictData.query.get(request.json['dictCode'])
 
@@ -93,6 +97,7 @@ def sysdict_data_update():
 @base.route('/system/dict/data/<string:ids>', methods=['DELETE'])
 @login_required
 @permission('system:dict:remove')
+@transactional
 def sydata_delete(ids):
     idList = ids.split(',')
     for id in idList:
@@ -105,6 +110,7 @@ def sydata_delete(ids):
 @base.route('/system/dict/data/export', methods=['POST'])
 @login_required
 @permission('system:dict:export')
+@transactional
 def sysdict_data_export():
     dictType = request.form['dictType']
     rows = []

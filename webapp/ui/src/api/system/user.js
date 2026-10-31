@@ -87,7 +87,7 @@ export function updateUserProfile(data) {
   })
 }
 
-// 用户密码重置
+// 用户密码修改（密码走请求体，避免出现在 URL 与访问日志中）
 export function updateUserPwd(oldPassword, newPassword) {
   const data = {
     oldPassword,
@@ -96,7 +96,7 @@ export function updateUserPwd(oldPassword, newPassword) {
   return request({
     url: '/system/user/profile/updatePwd',
     method: 'put',
-    params: data
+    data: data
   })
 }
 
