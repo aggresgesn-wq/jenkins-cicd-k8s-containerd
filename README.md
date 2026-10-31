@@ -1,7 +1,5 @@
 # jenkins-cicd-k8s-containerd
 
-> 仓库已由 `jenkins-gitea-k8s-containerd` 重命名为 `jenkins-cicd-k8s-containerd`（GitHub 会重定向旧地址）。代码托管、Webhook 与提交状态回写均使用 GitHub；如需内网自建代码托管，可按 [deploy/gitea/README.md](deploy/gitea/README.md) 在 Linux 上部署 Gitea 并切换 Webhook。
-
 面向 Kubernetes 的 CI/CD 示例仓库：代码托管在 GitHub，Jenkins 在集群内动态创建构建 Pod，使用 kaniko 构建镜像，发布到 containerd 运行时集群。仓库内置一个可运行的 Flask + Vue 后台权限系统，用来演示从提交、测试、扫描、构建、推送到测试/生产发布与回滚的完整链路。
 
 ![系统架构](docs/images/architecture.svg)
