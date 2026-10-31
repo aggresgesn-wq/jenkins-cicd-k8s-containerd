@@ -17,6 +17,18 @@
 - 应用目录：[webapp/](webapp)
 - 生产启动方式：gunicorn，入口 `webapp/wsgi.py:app`，容器端口 `5000`
 
+## 界面速览
+
+| Jenkins 首页（webapp #48 成功） | 流水线 SCM 配置（① 仓库地址、② 凭据） |
+| --- | --- |
+| <img src="docs/images/jenkins/02-dashboard.png" width="480" alt="Jenkins 首页"/> | <img src="docs/images/jenkins/04-pipeline-scm.png" width="480" alt="流水线 SCM 配置"/> |
+
+当前 11 阶段流水线（按 `webapp/Jenkinsfile` 生成，示意非截图）：
+
+<img src="docs/images/jenkins/05-current-build-stages.svg" width="920" alt="当前 11 阶段流水线"/>
+
+登录页、新建任务、插件管理与改造前的历史对比见 [docs/JENKINS-UI.md](docs/JENKINS-UI.md)。
+
 ## 项目定位
 
 | 维度 | 说明 |
