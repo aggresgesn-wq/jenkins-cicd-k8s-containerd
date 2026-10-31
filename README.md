@@ -21,11 +21,15 @@
 | --- | --- |
 | <img src="docs/images/jenkins/02-dashboard.png" width="480" alt="Jenkins 首页"/> | <img src="docs/images/jenkins/04-pipeline-scm.png" width="480" alt="流水线 SCM 配置"/> |
 
+| Jenkins 登录页 | 新建任务（选择「流水线」） |
+| --- | --- |
+| <img src="docs/images/jenkins/01-login.png" width="300" alt="Jenkins 登录页"/> | <img src="docs/images/jenkins/03-new-pipeline-job.png" width="640" alt="新建流水线任务"/> |
+
 当前 11 阶段流水线（按 `webapp/Jenkinsfile` 生成，示意非截图）：
 
 <img src="docs/images/jenkins/05-current-build-stages.svg" width="920" alt="当前 11 阶段流水线"/>
 
-登录页、新建任务、插件管理与改造前的历史对比见 [docs/JENKINS-UI.md](docs/JENKINS-UI.md)。
+插件管理、改造前后的历史对比等其余截图见 [docs/JENKINS-UI.md](docs/JENKINS-UI.md)。
 
 ## 项目定位
 
