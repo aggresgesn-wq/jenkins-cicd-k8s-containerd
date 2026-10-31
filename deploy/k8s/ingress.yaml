@@ -1,0 +1,46 @@
+# Ingress：把域名流量转给 ClusterIP Service（80 -> 容器 5000）。
+#
+# 使用前请：
+#   1. 把 host 替换为你的真实域名，并配置 DNS 指向 ingress-nginx 的入口地址；
+#   2. 按 deploy/README.md 配置证书后，取消文件末尾 tls 段的注释并启用 ssl-redirect。
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: webapp
+  namespace: webapp
+  labels:
+    app: webapp
+    app.kubernetes.io/name: webapp
+  annotations:
+    # 上传大小需大于 MAX_CONTENT_LENGTH（5 MiB）
+    nginx.ingress.kubernetes.io/proxy-body-size: "6m"
+    # 与 gunicorn timeout（120s）保持一致
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "120"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "120"
+
+    # 启用 TLS 后取消下一行注释，强制 HTTP 跳转 HTTPS：
+    # nginx.ingress.kubernetes.io/ssl-redirect: "true"
+
+    # 使用 cert-manager 自动签发证书时取消注释（替换为实际的 ClusterIssuer）：
+    # cert-manager.io/cluster-issuer: letsencrypt-prod
+spec:
+  ingressClassName: nginx
+  rules:
+    # TODO: 替换为你自己的域名
+    - host: webapp.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: webapp
+                port:
+                  number: 80
+
+  # TLS：先创建证书 Secret（kubectl create secret tls webapp-tls ... 或 cert-manager，
+  # 详见 deploy/README.md），再取消下面的注释。hosts 要与上面的 host 完全一致。
+  # tls:
+  #   - hosts:
+  #       - webapp.example.com
+  #     secretName: webapp-tls

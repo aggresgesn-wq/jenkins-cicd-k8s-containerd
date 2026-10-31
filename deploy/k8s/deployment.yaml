@@ -1,0 +1,143 @@
+# webapp 应用部署：2 副本、滚动更新、非 root + 只读根文件系统。
+#
+# 镜像占位符 IMAGE_PLACEHOLDER 由 CI 在部署时替换，例如：
+#   kubectl -n webapp set image deployment/webapp webapp=\
+#     crpi-m67ogm8wgcr0rh38.cn-hangzhou.personal.cr.aliyuncs.com/tanchenrui/webapp:<git-short-sha>
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: webapp
+  namespace: webapp
+  labels:
+    app: webapp
+    app.kubernetes.io/name: webapp
+    app.kubernetes.io/component: backend
+spec:
+  replicas: 2
+  revisionHistoryLimit: 5
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app: webapp
+  template:
+    metadata:
+      labels:
+        app: webapp
+        app.kubernetes.io/name: webapp
+        app.kubernetes.io/component: backend
+    spec:
+      serviceAccountName: webapp
+      automountServiceAccountToken: false
+
+      # 私有 ACR 仓库需要拉取凭证；先在命名空间创建 docker-registry Secret，再取消注释：
+      #   kubectl -n webapp create secret docker-registry acr-pull-secret \
+      #     --docker-server=crpi-m67ogm8wgcr0rh38.cn-hangzhou.personal.cr.aliyuncs.com \
+      #     --docker-username=<用户名> --docker-password=<密码>
+      # imagePullSecrets:
+      #   - name: acr-pull-secret
+
+      # 尽量把同应用副本打散到不同节点；单节点集群若用 DoNotSchedule 会导致 Pending，
+      # 因此默认 ScheduleAnyway（软约束）。多节点生产集群可改为 DoNotSchedule。
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: webapp
+
+      # Pod 级安全上下文：PVC 通过 fsGroup 授权给 10001，满足只读根文件系统下的上传写入。
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
+
+      terminationGracePeriodSeconds: 45
+
+      containers:
+        - name: webapp
+          # TODO(CI): 替换为本次构建的完整镜像地址（tag = git short sha）
+          image: IMAGE_PLACEHOLDER
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 5000
+              protocol: TCP
+
+          # 配置来源：ConfigMap 放非敏感项，Secret 放密钥与数据库连接串
+          envFrom:
+            - configMapRef:
+                name: webapp-config
+            - secretRef:
+                name: webapp-secret
+
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "256Mi"
+            limits:
+              cpu: "500m"
+              memory: "768Mi"
+
+          # 就绪探针会执行 SELECT 1，数据库不可用时不会把流量导进来
+          readinessProbe:
+            httpGet:
+              path: /health/ready
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+            successThreshold: 1
+
+          # 存活探针只检查进程是否还能响应，不依赖数据库
+          livenessProbe:
+            httpGet:
+              path: /health/live
+              port: http
+            initialDelaySeconds: 20
+            periodSeconds: 15
+            timeoutSeconds: 3
+            failureThreshold: 3
+
+          # 先等 endpoints 摘除，再让 gunicorn 处理 SIGTERM
+          lifecycle:
+            preStop:
+              exec:
+                command: ["/bin/sh", "-c", "sleep 5"]
+
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 10001
+            runAsGroup: 10001
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+            seccompProfile:
+              type: RuntimeDefault
+
+          volumeMounts:
+            # Python/gunicorn 的临时文件与 worker 心跳
+            - name: tmp
+              mountPath: /tmp
+            # 头像上传目录（应用会把文件写到 /app/uploads）
+            - name: uploads
+              mountPath: /app/uploads
+
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 256Mi
+        - name: uploads
+          persistentVolumeClaim:
+            claimName: webapp-uploads
