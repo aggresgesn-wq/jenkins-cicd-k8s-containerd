@@ -118,6 +118,14 @@ def syconfig_delete(ids):
 
     return jsonify({'code': 200, 'msg': '操作成功'})
 
+@base.route('/system/config/refreshCache', methods=['DELETE'])
+@login_required
+@permission('system:config:remove')
+def config_refresh_cache():
+    """当前实现没有独立缓存层，接口保留为显式空操作，避免前端按钮 404。"""
+    return jsonify({'code': 200, 'msg': '缓存已刷新'})
+
+
 @base.route('/system/config/export', methods=['POST'])
 @login_required
 @permission('system:config:export')

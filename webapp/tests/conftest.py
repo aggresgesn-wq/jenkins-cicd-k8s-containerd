@@ -53,11 +53,11 @@ def _seed() -> None:
     now = datetime.now()
     now_str = now
 
-    super_role = Role(ID=1, NAME="超管", ROLEKEY="superadmin", STATUS="0", SEQ=1, DATASCOPE=1,
+    super_role = Role(ID="1", NAME="超管", ROLEKEY="superadmin", STATUS="0", SEQ=1, DATASCOPE="1",
                       CREATEDATETIME=now_str, UPDATEDATETIME=now_str)
-    admin_role = Role(ID=2, NAME="管理员", ROLEKEY="admin", STATUS="0", SEQ=2, DATASCOPE=1,
+    admin_role = Role(ID="2", NAME="管理员", ROLEKEY="admin", STATUS="0", SEQ=2, DATASCOPE="1",
                       CREATEDATETIME=now_str, UPDATEDATETIME=now_str)
-    readonly_role = Role(ID=3, NAME="只读用户", ROLEKEY="readonly", STATUS="0", SEQ=3, DATASCOPE=2,
+    readonly_role = Role(ID="3", NAME="只读用户", ROLEKEY="readonly", STATUS="0", SEQ=3, DATASCOPE="2",
                          CREATEDATETIME=now_str, UPDATEDATETIME=now_str)
 
     user_list = Resource(ID="res-user-list", NAME="用户列表", PERMS="system:user:list", STATUS="0")

@@ -14,7 +14,8 @@ role_organization_table = db.Table('SYROLE_SYORGANIZATION', db.metadata,
 
 class Role(db.Model, UserMixin):
     __tablename__ = 'SYROLE'
-    ID = db.Column(db.Integer, primary_key=True)
+    # 与数据库 varchar(36) 保持一致：主键可能是 UUID，也可能是 '0' 这类内置角色 ID
+    ID = db.Column(db.String(36), primary_key=True)
     CREATEDATETIME = db.Column(db.DateTime, index=True, default=datetime.now)
     UPDATEDATETIME = db.Column(db.DateTime, index=True, default=datetime.now)
     NAME = db.Column(db.String(100))
@@ -22,7 +23,8 @@ class Role(db.Model, UserMixin):
     ICONCLS = db.Column(db.String(100))
     SEQ = db.Column(db.Integer)
     ROLEKEY = db.Column(db.String(100))
-    DATASCOPE = db.Column(db.Integer)
+    # 数据库为 char(1)：1 全部数据 2 自定数据 3 本部门 4 本部门及以下
+    DATASCOPE = db.Column(db.String(1))
     STATUS = db.Column(db.String(10))
 
     #包含资源

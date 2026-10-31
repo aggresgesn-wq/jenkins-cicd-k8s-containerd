@@ -290,5 +290,8 @@ kubectl apply -f deploy/monitoring/prometheusrule.yaml
 | Jenkins 插件安装失败 | 默认更新站点在国内不可达 | 换用清华/日本镜像站点（见 deploy/jenkins/README.md 第 2 节）后重试 |
 | 构建报 `command not found` | Jenkins/构建 Pod 的 PATH 不含工具路径 | 在 Pod 模板中直接使用带工具的镜像，或补 `PATH` 环境变量 |
 | GitHub Webhook 不触发 | URL 末尾缺斜杠、Secret 不一致、插件未装 | 在 GitHub *Recent Deliveries* 查看响应码，对照 `github-webhook-secret` |
+| 本地 `npm run dev` 接口 404 | 前端 `VUE_APP_BASE_API` 与后端蓝图前缀不一致 | 统一为 `/prod-api`，devServer 代理只转发、不做 pathRewrite |
+| 刷新前端路由返回 404 | SPA history 模式缺少回退 | Flask 已提供 catch-all；若用 Nginx 直出静态文件，配置 `try_files $uri $uri/ /index.html` |
+| 删除部门/角色报 409 | 存在子部门、关联用户或为内置角色 | 先解除引用；这是有意的业务约束，不是异常 |
 
 排障时优先看三处：`kubectl -n webapp describe pod`、`kubectl -n webapp logs deploy/webapp`、Ingress Controller 访问日志。不要在日志中输出 Cookie、密码或完整连接串。

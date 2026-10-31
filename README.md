@@ -205,6 +205,7 @@ python docker/mirror.py ghcr.io/containerd/nerdctl:latest --platform linux/arm64
 | [deploy/jenkins/README.md](deploy/jenkins/README.md) | Jenkins 安装（Helm/Docker/包管理）、插件源、K8s Cloud、凭据、备份升级 |
 | [deploy/monitoring/README.md](deploy/monitoring/README.md) | Prometheus 抓取、告警规则、Grafana 仪表盘、日志与审计脱敏 |
 | [deploy/helm/webapp/README.md](deploy/helm/webapp/README.md) | Helm Chart 参数、安装升级与回滚 |
+| [docs/SCOPE.md](docs/SCOPE.md) | 功能范围、若依模板遗留模块、技术债与清理计划 |
 
 ## 许可证与来源声明
 

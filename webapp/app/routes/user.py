@@ -24,8 +24,6 @@ from .. import captcha
 from flask import send_from_directory
 from werkzeug.utils import secure_filename
 import ipaddress
-from concurrent.futures import ThreadPoolExecutor
-import threading
 from flask import current_app
 from app import setup_logger
 from ..security import transactional
@@ -52,61 +50,27 @@ def grant_user_role():
 
     return jsonify({'code': 200, 'msg': '操作成功'})
 
-def update_location_async(app, online_id, ip):
-    """异步更新位置信息"""
-    with app.app_context():
-        try:
-            location = get_location_from_ip(ip)
-            online = OnLine.query.get(online_id)
-            if online:
-                online.LOCATION = location
-                db.session.commit()
-        except Exception as e:
-            logger.error(f"更新位置信息失败: {e}")
-
 @login_required
 def record_login_history(type):
     online = OnLine()
     online.LOGINNAME = current_user.LOGINNAME
     online.IP = request.remote_addr
     online.TYPE = type
-    user_agent = request.headers.get('User-Agent')
+    user_agent = request.headers.get('User-Agent') or ''
     online.OS = get_os_from_user_agent(user_agent)
     online.BROWSER = get_browser_from_user_agent(user_agent)
-    
-    # 如果是内网IP，直接设置位置
-    if is_private_ip(request.remote_addr):
-        online.LOCATION = "内网IP"
-    else:
-        online.LOCATION = "查询中..."
-        
+    # 不再把用户 IP 发送给第三方定位服务：只做内外网标记，避免隐私外泄与阻塞请求
+    online.LOCATION = "内网IP" if is_private_ip(request.remote_addr) else "外部IP"
+
     db.session.add(online)
     db.session.commit()
-    
-    # 只有外网IP才启动异步查询
-    if not is_private_ip(request.remote_addr):
-        executor = ThreadPoolExecutor(max_workers=1)
-        executor.submit(update_location_async, current_app._get_current_object(), online.ID, request.remote_addr)
-    
+
 def is_private_ip(ip):
     """判断是否为内网IP"""
     try:
         return ipaddress.ip_address(ip).is_private
     except ValueError:
         return False
-
-def get_location_from_ip(ip):
-    """Get location string from IP address"""
-    if is_private_ip(ip):
-        return "内网IP"
-    
-    try:
-        import requests
-        response = requests.get(f'http://whois.pconline.com.cn/ipJson.jsp?ip={ip}&json=true')
-        data = response.json()
-        return f"{data.get('pro', '')} {data.get('city', '')}" if data.get('pro', '') else data.get('addr', 'XX XX')
-    except Exception:
-        return "XX XX"    
 
 def get_os_from_user_agent(user_agent):
     """Extract OS info from User-Agent string"""
@@ -269,6 +233,7 @@ def syuser_getById(id):
 @base.route('/system/user', methods=['PUT'])
 @login_required
 @permission('system:user:edit')
+@log_operation('修改用户')
 @transactional
 def syuser_update():
     id = request.json['userId']
@@ -304,6 +269,7 @@ def hash_password(password, salt):
 @base.route('/system/user', methods=['POST'])
 @login_required
 @permission('system:user:add')
+@log_operation('新增用户')
 @transactional
 def syuser_save():
     if User.query.filter_by(LOGINNAME = request.json['userName']).first():
@@ -363,13 +329,43 @@ def syuser_register():
 @base.route('/system/user/<id>', methods=['DELETE'])
 @login_required
 @permission('system:user:remove')
+@log_operation('删除用户')
 @transactional
 def syuser_delete(id):
     user = User.query.get(id)
-    if user:
-        db.session.delete(user)
+    if user is None:
+        return jsonify({'code': 404, 'msg': '用户不存在'}), 404
+    if user.ID == current_user.ID:
+        return jsonify({'code': 409, 'msg': '不能删除当前登录用户'}), 409
+    if (user.LOGINNAME or '').lower() == 'admin':
+        return jsonify({'code': 409, 'msg': '内置管理员账号不允许删除'}), 409
+
+    db.session.delete(user)
 
     return jsonify({'code': 200, 'msg': '删除成功'})
+
+@base.route('/system/user/resetPwd', methods=['PUT'])
+@login_required
+@permission('system:user:edit')
+@log_operation('重置用户密码')
+@transactional
+def syuser_reset_pwd():
+    payload = request.get_json(silent=True) or {}
+    user = User.query.get(payload.get('userId'))
+    password = payload.get('password') or ''
+
+    if user is None:
+        return jsonify({'code': 404, 'msg': '用户不存在'}), 404
+    if len(password) < 8:
+        return jsonify({'code': 400, 'msg': '密码长度不能少于 8 位'}), 400
+
+    # 重置密码时一并轮换盐值
+    salt = generate_salt()
+    user.SALT = salt.hex()
+    user.PWD = hash_password(password, salt).hex()
+    db.session.add(user)
+
+    return jsonify({'code': 200, 'msg': '重置成功'})
 
 @base.route('/system/user/profile/updatePwd', methods=['PUT'])
 @login_required
@@ -392,7 +388,10 @@ def syuser_update_pwd():
         if not hmac.compare_digest(hash, user.PWD or ''):
             return jsonify({'code': 400, 'msg': '旧密码错误'}), 400
 
-        user.PWD = hash_password(new_password, salt).hex()
+        # 改密时轮换盐值，避免同一盐长期复用
+        new_salt = generate_salt()
+        user.SALT = new_salt.hex()
+        user.PWD = hash_password(new_password, new_salt).hex()
         db.session.add(user)
     return jsonify({'code': 200, 'msg': '修改成功'})
 

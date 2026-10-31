@@ -33,13 +33,10 @@ module.exports = {
     port: port,
     open: true,
     proxy: {
-      // detail: https://cli.vuejs.org/config/#devserver-proxy
+      // 前后端统一使用 /prod-api 前缀，只做转发、不改写路径
       [process.env.VUE_APP_BASE_API]: {
         target: `http://127.0.0.1:5000`,
-        changeOrigin: true,
-        pathRewrite: {
-          ['^' + process.env.VUE_APP_BASE_API]: ''
-        }
+        changeOrigin: true
       }
     },
     disableHostCheck: true

@@ -19,6 +19,15 @@ webapp/app.log
 webapp/ui/node_modules/
 webapp/ui/dist/
 npm-debug.log*
+coverage/
+.nyc_output/
+
+# 本地环境覆盖（仓库内的 .env.development/.env.production 只含非敏感配置）
+.env
+.env.*
+!.env.example
+webapp/ui/.env.local
+webapp/ui/.env.*.local
 
 # 本地工具目录
 .pip-tmp/

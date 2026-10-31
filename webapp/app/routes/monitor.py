@@ -71,6 +71,12 @@ def server():
             logger.error(f"PermissionError: {partition.mountpoint} - 无法访问该分区")
 
     memory = psutil.virtual_memory()
+    # 只采样一次：cpu_times_percent(interval=...) 会阻塞 interval 秒，
+    # 之前连续三次 cpu_percent(interval=1) 会让接口耗时 3 秒以上。
+    cpu_times = psutil.cpu_times_percent(interval=0.5)
+    cpu_used = round(getattr(cpu_times, 'user', 0.0), 1)
+    cpu_sys = round(getattr(cpu_times, 'system', 0.0), 1)
+    cpu_free = round(getattr(cpu_times, 'idle', max(0.0, 100 - cpu_used - cpu_sys)), 1)
 
     return jsonify({
         'msg': '操作成功',
@@ -86,9 +92,9 @@ def server():
             },
             'cpu': {
                 'cpuNum': psutil.cpu_count(),  # CPU 核心数
-                'used': psutil.cpu_percent(interval=1, percpu=False),  # 用户使用率
-                'sys': psutil.cpu_percent(interval=1, percpu=False),  # 系统使用率
-                'free': 100 - psutil.cpu_percent(interval=1, percpu=False)  # 空闲率
+                'used': cpu_used,              # 用户态使用率
+                'sys': cpu_sys,                # 内核态使用率
+                'free': cpu_free               # 空闲率
             },
             "mem": {
                 "total": round(memory.total / (1024 ** 3), 2),  # 转换为GB
