@@ -45,13 +45,14 @@ spec:
       ports:
         - protocol: TCP
           port: 5000
-    # kubelet 探针来自节点 IP，部分 CNI 需要显式放行（不配时探针可能失败）
-    - from:
-        - ipBlock:
-            cidr: 0.0.0.0/0
-      ports:
-        - protocol: TCP
-          port: 5000
+    # kubelet 探针来自节点 IP。Calico/Cilium 默认放行主机到 Pod 的流量；
+    # 若所用 CNI 会拦截探针，请按实际节点网段取消下面注释（不要使用 0.0.0.0/0）：
+    # - from:
+    #     - ipBlock:
+    #         cidr: 192.168.0.0/16   # 替换为节点/节点池网段
+    #   ports:
+    #     - protocol: TCP
+    #       port: 5000
   egress:
     # 集群 DNS（CoreDNS 通常带 k8s-app=kube-dns 标签）；
     # 若使用 NodeLocal DNSCache 或 DNS 不在 kube-system，请补充对应规则。

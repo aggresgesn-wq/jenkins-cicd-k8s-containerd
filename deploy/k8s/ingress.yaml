@@ -28,7 +28,7 @@ metadata:
       }
 
     # 启用 TLS 后取消下一行注释，强制 HTTP 跳转 HTTPS：
-    # nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
 
     # 使用 cert-manager 自动签发证书时取消注释（替换为实际的 ClusterIssuer）：
     # cert-manager.io/cluster-issuer: letsencrypt-prod
@@ -48,8 +48,8 @@ spec:
                   number: 80
 
   # TLS：先创建证书 Secret（kubectl create secret tls webapp-tls ... 或 cert-manager，
-  # 详见 deploy/README.md），再取消下面的注释。hosts 要与上面的 host 完全一致。
-  # tls:
-  #   - hosts:
-  #       - webapp.example.com
-  #     secretName: webapp-tls
+  # 详见 deploy/README.md）。hosts 要与上面的 host 完全一致。
+  tls:
+    - hosts:
+        - webapp.example.com
+      secretName: webapp-tls
