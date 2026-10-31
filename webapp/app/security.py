@@ -14,6 +14,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import hmac
 import secrets
 import threading
@@ -22,7 +23,7 @@ from collections import defaultdict, deque
 from functools import wraps
 
 from flask import current_app, jsonify, request, session
-from flask_login import current_user
+from flask_login import current_user, logout_user
 
 SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
 
@@ -83,6 +84,27 @@ def is_public_path(path: str | None = None) -> bool:
 
 def is_authenticated() -> bool:
     return bool(getattr(current_user, "is_authenticated", False))
+
+
+def password_fingerprint(user) -> str:
+    """密码哈希指纹：用于在改密后让其他设备的旧会话立即失效。"""
+    return hashlib.sha256((user.PWD or "").encode("utf-8")).hexdigest()[:16]
+
+
+def _session_is_current() -> bool:
+    """校验会话仍然有效：账号未被禁用，且密码未在别处修改。"""
+    if not is_authenticated():
+        return False
+    if (getattr(current_user, "STATUS", "0") or "0") != "0":
+        return False
+
+    current_fp = password_fingerprint(current_user)
+    stored_fp = session.get("pwd_fp")
+    if stored_fp is None:
+        # 兼容升级前建立的会话：补写指纹后放行
+        session["pwd_fp"] = current_fp
+        return True
+    return hmac.compare_digest(str(stored_fp), current_fp)
 
 
 def user_permissions(user=None) -> set[str]:
@@ -259,6 +281,11 @@ def _before_request():
 
     if not is_authenticated():
         return unauthorized()
+
+    if not _session_is_current():
+        logout_user()
+        session.clear()
+        return unauthorized("会话已失效，请重新登录")
 
     if request.method not in SAFE_METHODS and not _csrf_token_is_valid():
         return forbidden("CSRF 校验失败，请刷新页面后重试")

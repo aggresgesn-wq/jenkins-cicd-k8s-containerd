@@ -17,6 +17,15 @@ metadata:
     # 与 gunicorn timeout（120s）保持一致
     nginx.ingress.kubernetes.io/proxy-read-timeout: "120"
     nginx.ingress.kubernetes.io/proxy-send-timeout: "120"
+    # 边缘限流：缓解登录/注册接口撞库（应用内还有账号级锁定）
+    nginx.ingress.kubernetes.io/limit-rps: "20"
+    nginx.ingress.kubernetes.io/limit-burst-multiplier: "3"
+    # /metrics 不对公网暴露，只允许集群内 Prometheus 抓取
+    nginx.ingress.kubernetes.io/server-snippet: |
+      location = /metrics {
+        deny all;
+        return 403;
+      }
 
     # 启用 TLS 后取消下一行注释，强制 HTTP 跳转 HTTPS：
     # nginx.ingress.kubernetes.io/ssl-redirect: "true"

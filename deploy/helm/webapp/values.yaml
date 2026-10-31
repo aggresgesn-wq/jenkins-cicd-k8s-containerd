@@ -61,6 +61,14 @@ ingress:
   host: webapp.example.com
   annotations:
     nginx.ingress.kubernetes.io/proxy-body-size: "10m"
+    nginx.ingress.kubernetes.io/limit-rps: "20"
+    # 指标端点在集群内抓取，公网通过 Ingress 一律拒绝
+    nginx.ingress.kubernetes.io/server-snippet: |
+      location = /metrics {
+        deny all;
+        return 403;
+      }
+  # webapp-tls 需要提前创建（cert-manager 或 kubectl create secret tls），Chart 不会自动生成
   tls:
     enabled: true
     secretName: webapp-tls
@@ -78,8 +86,8 @@ config:
   FLASK_CONFIG: production
   LOG_LEVEL: INFO
   SESSION_LIFETIME_SECONDS: "28800"
-  # 启用 TLS 后设为 "true"
-  SESSION_COOKIE_SECURE: "false"
+  # 默认启用 TLS，因此 Cookie 必须只走 HTTPS；本地 http 调试时改为 "false"
+  SESSION_COOKIE_SECURE: "true"
   MAX_CONTENT_LENGTH: "5242880"
   GUNICORN_WORKERS: "4"
 

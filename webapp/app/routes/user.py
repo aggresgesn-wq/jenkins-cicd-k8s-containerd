@@ -16,7 +16,7 @@ from sqlalchemy import desc
 from sqlalchemy import text
 import flask_excel as excel
 from .. import permission
-from ..security import AVATAR_ALLOWED_TYPES, AVATAR_MAX_BYTES, login_throttle, rotate_csrf_token
+from ..security import AVATAR_ALLOWED_TYPES, AVATAR_MAX_BYTES, login_throttle, rotate_csrf_token, password_fingerprint
 from ..metrics import record_login_failure
 from ..operationlog import log_operation
 import os
@@ -152,6 +152,7 @@ def do_login():
     session.clear()  # 防会话固定
     login_user(user)
     rotate_csrf_token()
+    session["pwd_fp"] = password_fingerprint(user)
     record_login_history(1)
     return jsonify({'msg': '登录成功~', 'code': 200, 'url': '/'})
 
@@ -303,26 +304,40 @@ def syuser_save():
 @base.route('/register', methods=['POST'])
 @transactional
 def syuser_register():
-    if User.query.filter_by(LOGINNAME = request.json['username']).first():
-        return jsonify({'success': False, 'msg': '注册用户失败，用户名已存在！'})
+    # 注册开关必须由后端强制校验，不能只靠前端隐藏按钮
+    switch = Config.query.filter(Config.config_key == 'sys.account.registerUser').first()
+    if not (switch and str(switch.config_value).lower() == 'true'):
+        return jsonify({'code': 403, 'msg': '注册功能未开启'}), 403
+
+    payload = request.get_json(silent=True) or {}
+    username = (payload.get('username') or '').strip()
+    password = payload.get('password') or ''
+
+    if not username or len(username) > 64:
+        return jsonify({'code': 400, 'msg': '用户名不能为空且长度不超过 64'}), 400
+    if len(password) < 8:
+        return jsonify({'code': 400, 'msg': '密码长度不能少于 8 位'}), 400
+
+    throttle_key = f"register:{request.remote_addr}"
+    if login_throttle.locked(throttle_key):
+        return jsonify({'code': 429, 'msg': '注册过于频繁，请稍后再试'}), 429
+
+    if User.query.filter_by(LOGINNAME=username).first():
+        login_throttle.register_failure(throttle_key)
+        return jsonify({'code': 409, 'msg': '注册用户失败，用户名已存在！'}), 409
 
     user = User()
-
     user.ID = str(uuid.uuid4())
     salt = generate_salt()
     user.SALT = salt.hex()
-    user.PWD = hash_password(request.json['password'], salt).hex()
+    user.PWD = hash_password(password, salt).hex()
+    user.LOGINNAME = username
+    user.NAME = username
+    user.STATUS = '0'
+    # 自助注册一律只给只读角色，避免注册即提权
+    user.roles = Role.query.filter(Role.NAME == '只读用户').all()
 
-    with db.session.no_autoflush:
-        user.NAME = request.json['username']
-        user.roles = Role.query.filter(Role.NAME == '只读用户').all()
-
-        user.LOGINNAME = request.json['username']
-        user.NAME = user.LOGINNAME
-        user.STATUS = '0'
-
-        db.session.add(user)
-        db.session.commit()
+    db.session.add(user)
 
     return jsonify({'code': 200, 'msg': '注册用户成功！'})
 
@@ -393,6 +408,8 @@ def syuser_update_pwd():
         user.SALT = new_salt.hex()
         user.PWD = hash_password(new_password, new_salt).hex()
         db.session.add(user)
+        # 当前会话继续有效，其他设备上的旧会话在下次请求时失效
+        session["pwd_fp"] = password_fingerprint(user)
     return jsonify({'code': 200, 'msg': '修改成功'})
 
 @base.route('/getInfo', methods=['GET'])

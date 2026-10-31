@@ -47,9 +47,9 @@
 
 | 密钥/凭据 | 存放位置 | 轮换影响 |
 | --- | --- | --- |
-| `SECRET_KEY` | K8s Secret `webapp-secrets` | 所有 Session 与 CSRF 签名失效，用户需重新登录 |
-| `DATABASE_URI` | K8s Secret `webapp-secrets` | 含数据库密码；更新后滚动重启生效 |
-| `CAPTCHA_SECRET_KEY` | K8s Secret `webapp-secrets` | 已签发验证码失效；多副本必须保持一致 |
+| `SECRET_KEY` | K8s Secret `webapp-secret` | 所有 Session 与 CSRF 签名失效，用户需重新登录 |
+| `DATABASE_URI` | K8s Secret `webapp-secret` | 含数据库密码；更新后滚动重启生效 |
+| `CAPTCHA_SECRET_KEY` | K8s Secret `webapp-secret` | 已签发验证码失效；多副本必须保持一致 |
 | ACR 推送凭据 | Jenkins Credentials `acr-credentials` | 仅影响镜像推送，需同步更新 Jenkins 凭据 |
 | kubeconfig / ServiceAccount | Jenkins Credentials `kubeconfig` 或集群内 RBAC | 影响部署权限，按最小权限授予 |
 | Ingress TLS 证书 | K8s TLS Secret | 影响 HTTPS，需在证书到期前轮换 |
@@ -74,10 +74,12 @@
 | CSRF 防护 | 登录后下发 `XSRF-TOKEN` Cookie；前端所有 POST/PUT/DELETE 请求带 `X-XSRF-TOKEN` 头；服务端做双提交 Cookie 校验 | 删除/篡改请求头后写请求应被拒绝 |
 | 登录限流与锁定 | 同一账号/来源连续失败达到阈值后临时锁定，返回统一错误，避免账号枚举 | 连续错误密码触发锁定；等待窗口后恢复 |
 | 图形验证码 | Flask-Simple-Captcha，密钥来自 `CAPTCHA_SECRET_KEY`，验证码有有效期 | 错误验证码无法登录；多副本校验一致 |
-| 密码存储 | 密码以加盐哈希存储，不保存明文；修改密码需验证原密码 | 数据库 `SYUSER.PWD` 不出现明文 |
+| 密码存储 | 密码以加盐哈希存储，不保存明文；修改/重置密码时轮换盐值 | 数据库 `SYUSER.PWD` 不出现明文 |
+| 会话吊销 | 登录时在 Session 记录密码指纹；改密、重置密码或禁用账号后，其他设备上的旧会话在下一次请求即失效 | 双客户端登录后改密，另一客户端请求应返回 401 |
+| 注册管控 | `/register` 由后端强制校验 `sys.account.registerUser` 开关，并限制密码长度与来源频率，注册用户固定只读角色 | 关闭开关后直接 POST 注册应返回 403 |
 | 上传校验 | 校验扩展名、MIME 与大小；随机文件名；上传目录不执行脚本；`MAX_CONTENT_LENGTH` 兜底 | 上传可执行文件/超限文件应失败 |
 | 容器加固 | 非 root 用户运行；`readOnlyRootFilesystem: true`；`allowPrivilegeEscalation: false`；drop ALL capabilities；不使用 privileged、不挂载宿主机 containerd socket | `kubectl exec` 查看 UID；检查 PodSecurityContext |
-| 网络隔离 | NetworkPolicy 默认拒绝，仅放行 Ingress、DNS 与 MySQL 必要流量 | `kubectl describe networkpolicy` 与连通性测试 |
+| 网络隔离 | NetworkPolicy 默认拒绝，仅放行 Ingress、监控抓取、DNS 与 MySQL 必要流量；MySQL 单独放行应用与备份任务 | `kubectl describe networkpolicy` 与连通性测试 |
 | 密钥注入 | 运行期通过 K8s Secret 环境变量注入；CI 使用 Jenkins Credentials | 仓库与镜像历史中检索不到真实密钥 |
 | 供应链检查 | Jenkins 流水线包含后端测试、前端构建与安全扫描（含 SBOM）阶段；镜像以不可变 tag/digest 推送 | 流水线失败即阻断发布 |
 
@@ -85,7 +87,7 @@
 
 ```powershell
 # 目录：E:\CICD（PowerShell）
-kubectl -n webapp get secret webapp-secrets
+kubectl -n webapp get secret webapp-secret
 kubectl -n webapp get pods -l app=webapp
 kubectl -n webapp exec deploy/webapp -- id
 kubectl -n webapp exec deploy/webapp -- sh -c "touch /tmp/healthz && echo tmp-writable"
@@ -102,7 +104,7 @@ curl.exe -i http://127.0.0.1:8080/prod-api/system/user/list
 
 - [ ] `SECRET_KEY`、`CAPTCHA_SECRET_KEY` 为随机值且未出现在 Git/镜像中。
 - [ ] `DATABASE_URI` 使用最小权限账号，密码已 URL 编码，数据库为 MySQL 8.0+。
-- [ ] K8s Secret `webapp-secrets` 已创建，名称与 Deployment 的 `secretRef` 一致。
+- [ ] K8s Secret `webapp-secret` 已创建，名称与 Deployment 的 `secretRef` 一致。
 - [ ] 镜像已通过安全扫描，使用明确的 tag 或 digest，不使用 `latest`。
 - [ ] Ingress 已配置 TLS，`SESSION_COOKIE_SECURE=true`。
 - [ ] `deploy/k8s` 中的 NetworkPolicy、PDB、PVC、ConfigMap 已按环境调整。
