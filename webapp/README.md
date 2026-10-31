@@ -54,6 +54,50 @@
 
 
 
+## 基础镜像加速（国内）
+
+项目构建用的基础镜像统一取自[渡渡鸟镜像同步站](https://docker.aityp.com)：该站把 `docker.io`、`ghcr.io`、`gcr.io`、`quay.io`、`registry.k8s.io` 等仓库的镜像同步到华为云 SWR，国内网络可以直接拉取，不必再单独配置 Docker 加速器。
+
+地址规则：
+
+```text
+swr.cn-north-4.myhuaweicloud.com/ddn-k8s/<原始仓库>/<镜像>:<tag>
+```
+
+| 原始镜像 | 国内可用地址 |
+| --- | --- |
+| `python:3.11` | `swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/python:3.11` |
+| `node:18` | `swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/node:18` |
+| `ubuntu:20.04` | `swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/ubuntu:20.04` |
+| `moby/buildkit:v0.31.1` | `swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/moby/buildkit:v0.31.1` |
+| `ghcr.io/containerd/nerdctl:latest` | `swr.cn-north-4.myhuaweicloud.com/ddn-k8s/ghcr.io/containerd/nerdctl:latest` |
+
+没有同步过的镜像，可以先到站点搜索，或提交同步请求：<https://docker.aityp.com/manage/add>，同步完成后再按上面的规则拼地址。
+
+### 查询镜像地址
+
+`docker/mirror.py` 封装了站点的公开 API（<https://docker.aityp.com/api/v1/image>），输入原始镜像名即可得到国内地址，只依赖 Python 标准库：
+
+```bash
+python docker/mirror.py python:3.11 node:18 ubuntu:20.04
+# docker.io/python:3.11 -> swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/python:3.11
+
+python docker/mirror.py ghcr.io/containerd/nerdctl:latest --platform linux/arm64 --json
+```
+
+查询不到时脚本会按规则拼出兜底地址，并提示到站点提交同步。
+
+### 构建时更换基础镜像
+
+`dockerfile` 和 `docker/Dockerfile` 的基础镜像都做成了 build ARG，默认就是上面的国内地址，需要官方镜像时覆盖即可：
+
+```bash
+docker build -f dockerfile \
+  --build-arg UI_IMAGE=node:18 \
+  --build-arg BASE_IMAGE=python:3.11 \
+  -t webapp:dev .
+```
+
 **前端依赖插件**
 
  1. Vue

@@ -1,4 +1,7 @@
-FROM ubuntu:20.04
+# 基础镜像取自渡渡鸟镜像同步站(https://docker.aityp.com)，国内可直接拉取；
+# 需要官方镜像时用 --build-arg BASE_IMAGE=ubuntu:20.04 覆盖。
+ARG BASE_IMAGE=swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/ubuntu:20.04
+FROM ${BASE_IMAGE}
 
 # solve please select the geographic area in which you live problems
 ARG DEBIAN_FRONTEND=noninteractive
