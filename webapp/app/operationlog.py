@@ -8,6 +8,22 @@ import time
 
 logger = setup_logger(__name__)
 
+# 审计日志脱敏：这些字段一律不落库
+SENSITIVE_KEYS = ("password", "passwd", "pwd", "token", "secret", "authorization", "cookie", "salt")
+
+
+def mask_sensitive(value):
+    """递归过滤密码、令牌等敏感字段，避免审计日志泄露凭据。"""
+    if isinstance(value, dict):
+        return {
+            key: ("***" if any(word in str(key).lower() for word in SENSITIVE_KEYS) else mask_sensitive(val))
+            for key, val in value.items()
+        }
+    if isinstance(value, list):
+        return [mask_sensitive(item) for item in value]
+    return value
+
+
 def log_operation(operation_name):
     def decorator(f):
         @wraps(f)
@@ -15,13 +31,15 @@ def log_operation(operation_name):
             # Log operation details
             method = request.method
             path = request.path
-            
+
             # Log query parameters
             if method in ['GET', 'DELETE']:
                 params = request.args.to_dict()
             else:  # POST/PUT
                 params = request.get_json(silent=True) or {}
-                
+
+            params = mask_sensitive(params)
+
             # Log to console
             logger.debug(f"Operation: {operation_name}, Method: {method}, Path: {path}, Params: {params}")
 

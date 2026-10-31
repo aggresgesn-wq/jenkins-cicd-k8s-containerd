@@ -144,5 +144,9 @@ def create_app(config_name: str | None = None) -> Flask:
     init_security(app)
     _register_error_handlers(app)
 
+    from . import metrics
+
+    metrics.init_app(app)
+
     logger.info("应用初始化完成 config=%s", config_name)
     return app

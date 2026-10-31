@@ -1,6 +1,7 @@
 # coding: utf-8
 """运行时入口：注册路由、健康检查，并为 gunicorn 暴露 ``app``。"""
 
+import hmac
 import os
 
 from flask import jsonify, render_template
@@ -9,6 +10,41 @@ from sqlalchemy import text
 from app import create_app, db, setup_logger
 
 logger = setup_logger(__name__)
+
+# 历史版本 db.sql 中使用过的默认口令；首次请求时自检一次，提醒存量环境重置
+WEAK_DEFAULT_PASSWORDS = ("123456", "admin123", "admin")
+
+
+def _warn_default_passwords() -> None:
+    """只在首次请求时检查 admin/superadmin 是否仍在使用已知弱口令。"""
+    if os.environ.get("SKIP_DEFAULT_PASSWORD_CHECK", "").strip().lower() in {"1", "true", "yes"}:
+        return
+
+    try:
+        from app.models import User
+        from app.routes.user import hash_password
+
+        users = User.query.filter(User.LOGINNAME.in_(("admin", "superadmin"))).all()
+    except Exception as exc:  # noqa: BLE001 - 数据库未就绪时不影响启动
+        logger.debug("默认密码自检跳过: %s", exc)
+        return
+
+    for user in users:
+        if not user.SALT or not user.PWD or user.PWD.startswith("!"):
+            continue
+        try:
+            salt = bytes.fromhex(user.SALT)
+        except ValueError:
+            continue
+        for candidate in WEAK_DEFAULT_PASSWORDS:
+            if hmac.compare_digest(hash_password(candidate, salt).hex(), user.PWD):
+                logger.warning(
+                    "SECURITY: 账号 %s 仍在使用弱默认密码，请执行 "
+                    "`python scripts/reset_password.py --username %s` 后重新登录",
+                    user.LOGINNAME,
+                    user.LOGINNAME,
+                )
+                break
 
 
 def load_routes() -> None:
@@ -45,6 +81,10 @@ def register_runtime_routes(app) -> None:
     @app.route("/favicon.ico")
     def favicon():
         return app.send_static_file("favicon.ico")
+
+    @app.before_first_request
+    def _check_default_passwords_once():
+        _warn_default_passwords()
 
 
 def create_application(config_name: str | None = None):
