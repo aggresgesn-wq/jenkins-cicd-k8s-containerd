@@ -17,6 +17,7 @@ from sqlalchemy import text
 import flask_excel as excel
 from .. import permission
 from ..security import AVATAR_ALLOWED_TYPES, AVATAR_MAX_BYTES, login_throttle, rotate_csrf_token
+from ..metrics import record_login_failure
 from ..operationlog import log_operation
 import os
 from .. import captcha
@@ -172,13 +173,15 @@ def do_login():
 
     # 账号不存在、未激活、密码错误统一返回同一条消息，避免账号枚举
     if user is None or user.STATUS != '0':
-        login_throttle.register_failure(username)
+        locked = login_throttle.register_failure(username)
+        record_login_failure(locked)
         return jsonify({'msg': '登录失败,账号密码错误~', 'code': 401}), 401
 
     salt = bytes.fromhex(user.SALT)
     expected = hash_password(password, salt).hex()
     if not hmac.compare_digest(expected, user.PWD or ''):
-        login_throttle.register_failure(username)
+        locked = login_throttle.register_failure(username)
+        record_login_failure(locked)
         return jsonify({'msg': '登录失败,账号密码错误~', 'code': 401}), 401
 
     login_throttle.reset(username)
