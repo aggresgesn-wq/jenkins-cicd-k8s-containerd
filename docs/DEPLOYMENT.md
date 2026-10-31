@@ -229,7 +229,7 @@ Token 只用于两件事：回写提交状态、可选地读取仓库元数据�
 `webapp/Jenkinsfile` 会在流水线开始、成功、失败时调用 GitHub Status API，把结果写回对应 commit：
 
 ```bash
-POST https://api.github.com/repos/aggresgesn-wq/jenkins-github-k8s-containerd/statuses/$GIT_COMMIT
+POST https://api.github.com/repos/aggresgesn-wq/jenkins-cicd-k8s-containerd/statuses/$GIT_COMMIT
 Authorization: token $GITHUB_TOKEN
 {"state":"success|failure|pending","context":"jenkins/ci","target_url":"$BUILD_URL","description":"..."}
 ```
@@ -238,7 +238,7 @@ Authorization: token $GITHUB_TOKEN
 
 ### 7.6 Jenkins Job
 
-- 类型：*Pipeline script from SCM*，SCM 选 Git，仓库地址 `https://github.com/aggresgesn-wq/jenkins-github-k8s-containerd.git`，分支 `main`。
+- 类型：*Pipeline script from SCM*，SCM 选 Git，仓库地址 `https://github.com/aggresgesn-wq/jenkins-cicd-k8s-containerd.git`，分支 `main`。
 - Script Path：`webapp/Jenkinsfile`。
 - 构建触发器：*GitHub hook trigger for GITScm polling*。
 - 生产阶段使用 `input` 人工批准并限制审批人；拒绝或超时不得继续部署。

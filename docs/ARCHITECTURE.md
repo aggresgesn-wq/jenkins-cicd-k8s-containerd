@@ -1,13 +1,13 @@
 # 架构设计
 
-![系统架构](images/architecture.png)
+![系统架构](images/architecture.svg)
 
 本文描述示例应用与 CI/CD 链路的整体架构、请求路径、认证授权、数据模型与可靠性设计。目标是让读者能顺着一条请求和一次发布，理解各组件之间的边界与依赖。
 
 ## 目标与约束
 
 - Web 层无状态：会话数据保存在签名的 Flask Session Cookie 中，Pod 可水平扩容，不依赖粘性会话。
-- 构建与运行分离：Jenkins 使用 kaniko（图中为 Rootless BuildKit 等价方案）构建镜像，运行集群只负责拉取和运行，不向构建任务暴露 containerd socket。
+- 构建与运行分离：Jenkins 使用 kaniko 构建镜像（目标迁移 Rootless BuildKit，图中以紫色虚线标注），运行集群只负责拉取和运行，不向构建任务暴露 containerd socket。
 - 配置外置：所有环境差异通过环境变量、ConfigMap 与 Secret 注入，镜像不可变。
 - 安全默认：RBAC、CSRF、HttpOnly Cookie、非 root 容器、只读根文件系统。
 - 可回滚：镜像使用不可变 tag，Deployment 保留历史版本，健康检查失败时回滚。
@@ -31,7 +31,7 @@ flowchart LR
   DB[("MySQL 8")]
   G["GitHub"]
   J["Jenkins Controller<br/>+ 动态 Agent Pod"]
-  KAN["构建 Pod<br/>kaniko / Rootless BuildKit"]
+  KAN["构建 Pod<br/>kaniko（当前）/ Rootless BuildKit（目标）"]
   REG[("镜像仓库 ACR")]
 
   B -->|HTTPS| I
@@ -152,7 +152,7 @@ flowchart TD
   A["检出：GitHub Webhook 触发 Jenkins Controller / Agent"] --> B["后端测试：pytest / 权限矩阵"]
   B --> C["前端 Lint + Build"]
   C --> D["安全扫描：依赖 / 镜像 / SBOM"]
-  D --> E["构建镜像：kaniko（图中为 Rootless BuildKit）"]
+  D --> E["构建镜像：kaniko（当前实现）"]
   E --> F["推送镜像：ACR"]
   F --> G["部署测试环境"]
   G --> H["健康检查：/health/live + /health/ready"]
@@ -166,9 +166,9 @@ flowchart TD
 ```
 
 - 阶段顺序与 `webapp/Jenkinsfile` 一致：检出 → 后端测试 → 前端 Lint/Build → 安全扫描（含 SBOM）→ 构建镜像 → 推送 → 部署测试环境 → 健康检查 → 人工批准 → 生产部署/回滚。Gitea 可作为自建替代，替换 Webhook 来源与凭据即可。
-- 当前构建使用 kaniko，在普通 Pod 内完成，不使用 privileged 容器，也不挂载宿主机 containerd socket；图中以 Rootless BuildKit 表示等价的无特权构建方案，二者可替换。镜像 tag 使用 Git commit 短 SHA。
+- 当前构建使用 kaniko，在普通 Pod 内完成，不使用 privileged 容器，也不挂载宿主机 containerd socket；Rootless BuildKit 是目标方案，迁移完成前图中仅以虚线标注，二者可替换。镜像 tag 使用 Git commit 短 SHA。
 - 推送与部署凭据来自 Jenkins Credentials；人工批准使用 Jenkins `input`，超时或拒绝则不进入生产。
-- 图中发布通道以 Helm Upgrade/GitOps 表示；当前示例用 `deploy/k8s` 清单 + Jenkins 部署阶段实现等价发布，回滚优先使用 `kubectl rollout undo`。
+- 当前发布是 Kustomize 渲染 + `kubectl apply`（`deploy/k8s/overlays/{staging,production}`），没有 Argo CD/Flux 之类的持续协调器，因此不宣称 GitOps；回滚使用 `kubectl rollout undo`。
 
 ## 可靠性设计
 

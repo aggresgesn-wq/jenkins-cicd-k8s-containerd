@@ -19,7 +19,7 @@
 
 ```bash
 # 需要仓库管理员权限与 gh CLI
-REPO=aggresgesn-wq/jenkins-github-k8s-containerd BRANCH=main \
+REPO=aggresgesn-wq/jenkins-cicd-k8s-containerd BRANCH=main \
   ./deploy/github/apply-branch-protection.sh
 ```
 

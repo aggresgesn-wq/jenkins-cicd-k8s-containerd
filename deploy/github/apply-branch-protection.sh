@@ -10,7 +10,7 @@
 #   REPO=owner/repo BRANCH=main ./deploy/github/apply-branch-protection.sh
 set -euo pipefail
 
-REPO="${REPO:-aggresgesn-wq/jenkins-github-k8s-containerd}"
+REPO="${REPO:-aggresgesn-wq/jenkins-cicd-k8s-containerd}"
 BRANCH="${BRANCH:-main}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
