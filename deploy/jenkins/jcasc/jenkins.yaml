@@ -1,0 +1,47 @@
+# Jenkins Configuration as Code（JCasC）示例
+#
+# 用法：把本文件内容合并到 deploy/jenkins/values.yaml 的 controller.JCasC.configScripts，
+# 或挂载到 $JENKINS_HOME/casc_configs/。仅提供可复现的起点，落地前请用
+# `manage-jenkins-configuration` 页面校验。
+#
+# 未包含的内容（仍需凭据/环境相关配置）：
+#   * 凭据：acr-credentials / github-token / github-webhook-secret / dingtalk-webhook
+#   * 管理员账号：由 Helm chart 的 existingSecret 创建
+#   * 通知与邮件服务器
+jenkins:
+  systemMessage: "Jenkins for jenkins-gitea-k8s-containerd（CI/CD 示例）"
+  numExecutors: 0            # Controller 只做调度，构建交给动态 Agent Pod
+  mode: NORMAL
+  scmCheckoutRetryCount: 2
+
+  clouds:
+    - kubernetes:
+        name: "kubernetes"
+        serverUrl: "https://kubernetes.default.svc"
+        namespace: "jenkins"
+        jenkinsUrl: "https://jenkins.example.com/"
+        jenkinsTunnel: "jenkins-agent.jenkins.svc.cluster.local:50000"
+        containerCapStr: "20"
+        maxRequestsPerHostStr: "32"
+        templates:
+          - name: "default"
+            namespace: "jenkins"
+            serviceAccount: "jenkins-deployer"
+            idleMinutes: 5
+            containers:
+              - name: "jnlp"
+                image: "swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/jenkins/inbound-agent:3283.v92c105e0f819-9-jdk17"
+                alwaysPullImage: false
+                workingDir: "/home/jenkins/agent"
+                args: "^${computer.jnlpmac} ^${computer.name}"
+
+unclassified:
+  location:
+    url: "https://jenkins.example.com/"
+    adminAddress: "jenkins@example.com"
+  # PDF 5.1.7.1 的坑：GUI 里找不到 mvn/npm/kubectl 时，先把 PATH 注入全局环境变量
+  globalNodeProperties:
+    - envVars:
+        env:
+          - key: "PATH"
+            value: "/opt/java/openjdk/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"

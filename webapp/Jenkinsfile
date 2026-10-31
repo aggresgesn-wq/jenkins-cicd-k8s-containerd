@@ -41,6 +41,34 @@ spec:
     resources:
       limits: {cpu: "500m", memory: "512Mi"}
       requests: {cpu: "100m", memory: "128Mi"}
+  - name: helm
+    image: swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/alpine/helm:3.20.2
+    command: ['/bin/sh', '-c', 'sleep infinity']
+    tty: true
+    resources:
+      limits: {cpu: "200m", memory: "256Mi"}
+      requests: {cpu: "50m", memory: "64Mi"}
+  - name: kubeconform
+    image: swr.cn-north-4.myhuaweicloud.com/ddn-k8s/ghcr.io/yannh/kubeconform:latest
+    command: ['/bin/sh', '-c', 'sleep infinity']
+    tty: true
+    resources:
+      limits: {cpu: "200m", memory: "128Mi"}
+      requests: {cpu: "50m", memory: "32Mi"}
+  - name: trivy
+    image: swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/aquasec/trivy:0.68.2
+    command: ['/bin/sh', '-c', 'sleep infinity']
+    tty: true
+    resources:
+      limits: {cpu: "500m", memory: "1Gi"}
+      requests: {cpu: "100m", memory: "256Mi"}
+  - name: syft
+    image: swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/anchore/syft:v1.46.0
+    command: ['/bin/sh', '-c', 'sleep infinity']
+    tty: true
+    resources:
+      limits: {cpu: "500m", memory: "1Gi"}
+      requests: {cpu: "100m", memory: "256Mi"}
 """
         }
     }
@@ -162,7 +190,37 @@ PY
             }
         }
 
-        stage('5. 构建并推送镜像') {
+        stage('5. 清单校验（helm/kubeconform/kubectl diff）') {
+            steps {
+                container('kubectl') {
+                    sh '''
+                        set -e
+                        cd "$WORKSPACE"
+                        kubectl kustomize deploy/k8s/overlays/staging > staging-rendered.yaml
+                        kubectl kustomize deploy/k8s/overlays/production > production-rendered.yaml
+                        echo "--- kubectl diff（staging，仅提示，不作为门禁） ---"
+                        kubectl diff -f staging-rendered.yaml || true
+                    '''
+                }
+                container('kubeconform') {
+                    sh '''
+                        set -e
+                        cd "$WORKSPACE"
+                        kubeconform -strict -summary -ignore-missing-schemas \
+                          -kubernetes-version 1.29.0 staging-rendered.yaml production-rendered.yaml
+                    '''
+                }
+                container('helm') {
+                    sh '''
+                        set -e
+                        cd "$WORKSPACE"
+                        helm lint deploy/helm/webapp
+                    '''
+                }
+            }
+        }
+
+        stage('6. 构建并推送镜像') {
             steps {
                 container('kaniko') {
                     withCredentials([usernamePassword(credentialsId: 'acr-credentials',
@@ -170,11 +228,12 @@ PY
                                                       passwordVariable: 'REG_PASS')]) {
                         sh '''
                             set -e
-                            mkdir -p /kaniko/.docker
+                            mkdir -p "$WORKSPACE/.docker"
                             AUTH=$(printf "%s:%s" "$REG_USER" "$REG_PASS" | base64 | tr -d '\\n')
-                            cat > /kaniko/.docker/config.json <<EOF
+                            cat > "$WORKSPACE/.docker/config.json" <<EOF
 {"auths":{"$REGISTRY":{"auth":"$AUTH"}}}
 EOF
+                            export DOCKER_CONFIG="$WORKSPACE/.docker"
                             /kaniko/executor \
                               --context=webapp \
                               --dockerfile=dockerfile \
@@ -190,7 +249,38 @@ EOF
             }
         }
 
-        stage('6. 部署测试环境（kustomize + digest）') {
+        stage('7. 镜像扫描与 SBOM') {
+            when {
+                expression { params.RUN_SECURITY_SCAN }
+            }
+            steps {
+                script {
+                    env.IMAGE_DIGEST = sh(script: 'cat "$WORKSPACE/.image-digest"', returnStdout: true).trim()
+                }
+                container('trivy') {
+                    withCredentials([usernamePassword(credentialsId: 'acr-credentials',
+                                                      usernameVariable: 'REG_USER',
+                                                      passwordVariable: 'REG_PASS')]) {
+                        sh '''
+                            set -e
+                            export DOCKER_CONFIG="$WORKSPACE/.docker"
+                            trivy image --quiet --exit-code 1 --severity HIGH,CRITICAL --ignore-unfixed \
+                              "$FULL_IMG@$IMAGE_DIGEST"
+                        '''
+                    }
+                }
+                container('syft') {
+                    sh '''
+                        set -e
+                        export DOCKER_CONFIG="$WORKSPACE/.docker"
+                        syft "$FULL_IMG@$IMAGE_DIGEST" -o spdx-json="$WORKSPACE/sbom.spdx.json"
+                    '''
+                }
+                archiveArtifacts artifacts: 'sbom.spdx.json', allowEmptyArchive: true
+            }
+        }
+
+        stage('8. 部署测试环境（kustomize + digest）') {
             steps {
                 container('kubectl') {
                     sh '''
@@ -208,7 +298,7 @@ EOF
             }
         }
 
-        stage('7. 测试环境健康检查') {
+        stage('9. 测试环境健康检查') {
             steps {
                 container('kubectl') {
                     sh '''
@@ -228,18 +318,24 @@ EOF
             }
         }
 
-        stage('8. 生产发布审批') {
+        stage('10. 生产发布审批') {
             when {
-                expression { params.DEPLOY_ENV == 'production' }
+                allOf {
+                    branch 'main'
+                    expression { params.DEPLOY_ENV == 'production' }
+                }
             }
             steps {
                 input message: "测试环境已通过，确认发布到生产环境 ${FULL_IMG} ?", ok: "发布生产"
             }
         }
 
-        stage('9. 生产部署与健康检查') {
+        stage('11. 生产部署与健康检查') {
             when {
-                expression { params.DEPLOY_ENV == 'production' }
+                allOf {
+                    branch 'main'
+                    expression { params.DEPLOY_ENV == 'production' }
+                }
             }
             steps {
                 container('kubectl') {
