@@ -5,6 +5,8 @@ pipeline {
 apiVersion: v1
 kind: Pod
 spec:
+  # 镜像统一取自渡渡鸟镜像同步站 https://docker.aityp.com
+  # 规则: swr.cn-north-4.myhuaweicloud.com/ddn-k8s/<原始仓库>/<镜像>:<tag>
   nodeSelector:
     kubernetes.io/hostname: k8s-master
   # 强制华为云源走 IPv4（Pod 内 DNS 优先返回 IPv6，无 IPv6 路由导致 TLS 握手超时）
