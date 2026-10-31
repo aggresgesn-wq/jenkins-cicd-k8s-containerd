@@ -1,0 +1,55 @@
+# Gitea + MySQL 的本地/小团队部署（Linux）
+#
+#   cd deploy/gitea
+#   export GITEA_DB_PASSWORD="$(openssl rand -hex 16)"
+#   sudo docker compose up -d
+#   sudo docker compose logs -f gitea
+#
+# 生产建议：数据库使用托管实例，把 ./data 挂到宿主机或独立磁盘，并配置 HTTPS 反代。
+
+services:
+  db:
+    image: mysql:8.0
+    restart: unless-stopped
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_0900_ai_ci
+    environment:
+      MYSQL_ROOT_PASSWORD: ${GITEA_DB_PASSWORD:?set GITEA_DB_PASSWORD}
+      MYSQL_DATABASE: gitea
+      MYSQL_USER: gitea
+      MYSQL_PASSWORD: ${GITEA_DB_PASSWORD}
+    volumes:
+      - ./mysql:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uroot", "-p${GITEA_DB_PASSWORD}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  gitea:
+    image: gitea/gitea:1.22.6
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      USER_UID: "1000"
+      USER_GID: "1000"
+      GITEA__database__DB_TYPE: mysql
+      GITEA__database__HOST: db:3306
+      GITEA__database__NAME: gitea
+      GITEA__database__USER: gitea
+      GITEA__database__PASSWD: ${GITEA_DB_PASSWORD}
+      GITEA__server__DOMAIN: git.example.com
+      GITEA__server__ROOT_URL: https://git.example.com/
+      GITEA__server__SSH_PORT: "2222"
+      GITEA__service__DISABLE_REGISTRATION: "true"
+      GITEA__security__INSTALL_LOCK: "true"
+    volumes:
+      - ./data:/data
+      - /etc/localtime:/etc/localtime:ro
+    ports:
+      # 只监听本机，由 Nginx 反代；SSH 端口按需对外开放
+      - "127.0.0.1:3000:3000"
+      - "2222:22"

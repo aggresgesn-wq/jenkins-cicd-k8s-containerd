@@ -1,0 +1,89 @@
+; Gitea 示例配置（Linux 生产）
+;
+; 部署位置：/etc/gitea/app.ini
+; 权限：chown root:git /etc/gitea/app.ini && chmod 640 /etc/gitea/app.ini
+;
+; 所有 __CHANGE_ME__ 必须替换，生成方式：
+;   gitea generate secret SECRET_KEY
+;   gitea generate secret INTERNAL_TOKEN
+;   gitea generate secret LFS_JWT_SECRET
+;
+; 不要把填好真实值的 app.ini 提交到 Git。
+
+APP_NAME = Gitea
+RUN_USER = git
+RUN_MODE = prod
+WORK_PATH = /var/lib/gitea
+
+[server]
+PROTOCOL = http
+DOMAIN = git.example.com
+ROOT_URL = https://git.example.com/
+HTTP_ADDR = 127.0.0.1
+HTTP_PORT = 3000
+
+; SSH：使用 Gitea 内置 SSH 服务，避免依赖系统 sshd 的 authorized_keys
+DISABLE_SSH = false
+START_SSH_SERVER = true
+SSH_LISTEN_HOST = 0.0.0.0
+SSH_LISTEN_PORT = 2222
+SSH_PORT = 2222
+
+LFS_START_SERVER = true
+LFS_JWT_SECRET = __CHANGE_ME__
+OFFLINE_MODE = true
+
+[database]
+DB_TYPE = mysql
+HOST = 127.0.0.1:3306
+NAME = gitea
+USER = gitea
+PASSWD = __CHANGE_ME__
+CHARSET = utf8mb4
+SSL_MODE = disable
+
+[repository]
+ROOT = /var/lib/gitea/data/gitea-repositories
+DEFAULT_BRANCH = main
+DEFAULT_PRIVATE = private
+
+[security]
+; 锁定安装向导，防止未授权重新初始化
+INSTALL_LOCK = true
+SECRET_KEY = __CHANGE_ME__
+INTERNAL_TOKEN = __CHANGE_ME__
+PASSWORD_HASH_ALGO = pbkdf2
+MIN_PASSWORD_LENGTH = 12
+PASSWORD_COMPLEXITY = lower,upper,digit,spec
+
+[service]
+; 关闭自助注册，由管理员建号
+DISABLE_REGISTRATION = true
+REQUIRE_SIGNIN_VIEW = false
+REGISTER_EMAIL_CONFIRM = false
+ENABLE_NOTIFY_MAIL = false
+DEFAULT_KEEP_EMAIL_PRIVATE = true
+NO_REPLY_ADDRESS = noreply.example.com
+
+[webhook]
+; 只允许向受信任的 Jenkins 域名发送 Webhook，防止 SSRF
+ALLOWED_HOST_LIST = jenkins.example.com
+
+[mailer]
+ENABLED = false
+; FROM = Gitea <noreply@example.com>
+; PROTOCOL = smtp+starttls
+; SMTP_ADDR = smtp.example.com
+; SMTP_PORT = 587
+; USER = noreply@example.com
+; PASSWD = __CHANGE_ME__
+
+[log]
+MODE = console
+LEVEL = Info
+ROOT_PATH = /var/lib/gitea/log
+
+[metrics]
+ENABLED = true
+ENABLED_ISSUE_BY_LABEL = false
+ENABLED_ISSUE_BY_REPOSITORY = false

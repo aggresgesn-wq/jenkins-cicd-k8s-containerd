@@ -242,6 +242,16 @@ Authorization: token $GITHUB_TOKEN
 - 构建触发器：*GitHub hook trigger for GITScm polling*。
 - 生产阶段使用 `input` 人工批准并限制审批人；拒绝或超时不得继续部署。
 
+### 7.7 自建 Gitea（可选，Linux）
+
+内网或离线环境可按 [deploy/gitea/README.md](../deploy/gitea/README.md) 在 Linux 上部署 Gitea：二进制 + systemd（推荐生产）、Docker Compose、或 K8s/Helm；其中包含 `app.ini` 示例、Nginx 反代、管理员初始化、备份升级与排障。
+
+切换到 Gitea 时注意：
+
+- Gitea 的 Webhook 事件头与 GitHub 不同，Jenkins 的 GitHub 插件 `/github-webhook/` 不一定能直接消费；优先使用 **Gitea 插件**（`/gitea-webhook/post`）或 **Generic Webhook Trigger**。
+- `webapp/Jenkinsfile` 中的 `githubStatus()` 调用 GitHub Status API；切换到 Gitea 后需改为 Gitea 的 Commit Status 接口，或删除该步骤（流水线会打印告警但继续执行）。
+- 仓库地址、SSH 端口（默认 2222）与凭据需在 Jenkins Job 中同步修改。
+
 ## 8. 备份与恢复
 
 ### 8.1 数据库备份
