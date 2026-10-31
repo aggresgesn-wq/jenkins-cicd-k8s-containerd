@@ -1,0 +1,18 @@
+# 阶段1: 构建 Vue 前端
+FROM swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/node:18 AS ui-builder
+WORKDIR /ui
+COPY ui/ /ui/
+RUN npm config set registry https://registry.npmmirror.com \
+    && npm install \
+    && npm run build:prod
+
+# 阶段2: Python 后端 + 前端产物
+FROM swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/python:3.11
+WORKDIR /app
+COPY . /app
+RUN pip install uv -i https://pypi.tuna.tsinghua.edu.cn/simple && uv pip install --system -r pyproject.toml --index-url https://pypi.tuna.tsinghua.edu.cn/simple
+# 前端构建产物: dist/static/* -> app/static/ (Flask 默认静态目录), index.html 一并放入
+COPY --from=ui-builder /ui/dist/static/. /app/app/static/
+COPY --from=ui-builder /ui/dist/index.html /app/app/static/index.html
+EXPOSE 5000
+CMD ["python", "start.py"]

@@ -1,0 +1,17 @@
+[project]
+name = "AuthBase"
+version = "2.1"
+dependencies = [
+    "flask==2.2.5",
+    "flask-excel==0.0.7",
+    "flask-login==0.6.2",
+    "flask-moment==1.0.5",
+    "flask-simple-captcha==5.5.5",
+    "flask-sqlalchemy==3.0.2",
+    "mysql-connector-python==8.0.33",
+    "psutil==5.9.0",
+    "pyexcel-xlsx==0.6.0",
+    "watchdog==6.0.0",
+    "werkzeug==2.3.0",
+]
+
