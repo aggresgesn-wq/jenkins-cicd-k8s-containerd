@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: webapp-staging
+  labels:
+    name: webapp-staging
+    pod-security.kubernetes.io/enforce: restricted

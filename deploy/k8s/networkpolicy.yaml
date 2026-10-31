@@ -34,11 +34,21 @@ spec:
     - Ingress
     - Egress
   ingress:
-    # 只允许 ingress-nginx 命名空间中的 Pod 访问容器端口 5000
+    # 只允许 ingress-nginx 访问应用端口，以及 monitoring 命名空间抓取 /metrics
     - from:
         - namespaceSelector:
             matchLabels:
               kubernetes.io/metadata.name: ingress-nginx
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+      ports:
+        - protocol: TCP
+          port: 5000
+    # kubelet 探针来自节点 IP，部分 CNI 需要显式放行（不配时探针可能失败）
+    - from:
+        - ipBlock:
+            cidr: 0.0.0.0/0
       ports:
         - protocol: TCP
           port: 5000
@@ -73,3 +83,28 @@ spec:
       ports:
         - protocol: TCP
           port: 443
+
+---
+# 3) MySQL：default-deny-ingress 会连库也拦掉，这里显式放行应用与备份任务
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: mysql-allow
+  namespace: webapp
+spec:
+  podSelector:
+    matchLabels:
+      app: mysql
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: webapp
+        - podSelector:
+            matchLabels:
+              app: mysql-backup
+      ports:
+        - protocol: TCP
+          port: 3306

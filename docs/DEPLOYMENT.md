@@ -18,14 +18,14 @@ kubectl create namespace webapp --dry-run=client -o yaml | kubectl apply -f -
 命名空间以 `deploy/k8s` 清单为准；上面的命令是幂等的，便于首次部署和重复执行。
 
 ## 2. 创建 Secret
-运行期密钥放在 K8s Secret 中，名称示例为 `webapp-secrets`，必须与 Deployment 的 `secretRef` 一致。
+运行期密钥放在 K8s Secret 中，名称示例为 `webapp-secret`，必须与 Deployment 的 `secretRef` 一致。
 
 ```powershell
 # 目录：E:\CICD（PowerShell）
 $SECRET_KEY = python -c "import secrets; print(secrets.token_hex(32))"
 $CAPTCHA_SECRET_KEY = python -c "import secrets; print(secrets.token_hex(32))"
 
-kubectl -n webapp create secret generic webapp-secrets `
+kubectl -n webapp create secret generic webapp-secret `
   --from-literal=SECRET_KEY="$SECRET_KEY" `
   --from-literal=CAPTCHA_SECRET_KEY="$CAPTCHA_SECRET_KEY" `
   --from-literal=DATABASE_URI="mysql+mysqlconnector://webapp:REPLACE_ME@mysql.example.internal:3306/authbase?charset=utf8mb4" `
@@ -125,7 +125,17 @@ kubectl -n webapp get pods,svc,ingress
 ```
 
 - `set image` 中的 `webapp` 是容器名，示例与清单保持一致；如不同，先 `kubectl -n webapp get deployment webapp -o yaml` 确认。
+- 测试环境使用独立命名空间 `webapp-staging`，Jenkins 在人工批准前只会改动它，不会触碰生产：
+
+```powershell
+# 目录：E:\CICD（PowerShell）
+kubectl apply -f deploy/k8s/overlays/staging/namespace.yaml
+kubectl kustomize deploy/k8s/overlays/staging | kubectl apply -f -
+kubectl -n webapp-staging rollout status deployment/webapp --timeout=180s
+```
+
 - 在 Ingress 中配置域名与 TLS Secret `webapp-tls`，并把 DNS 指向 Ingress Controller。
+- `/metrics` 已在 Ingress 层拒绝公网访问，只允许集群内 Prometheus 抓取；需要临时排查时用 `kubectl port-forward`。
 - 如使用 Helm/GitOps，可用 `helm upgrade` 替代 `kubectl apply`；首次部署若因依赖顺序失败，确认 namespace、Secret、ConfigMap、PVC 已存在后重新 `kubectl apply -f deploy/k8s/`。
 
 ### 使用 Helm 部署（可选）

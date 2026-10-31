@@ -1,7 +1,7 @@
 pipeline {
     agent {
         kubernetes {
-            // 构建节点不再使用 privileged 容器，也不挂载宿主机 containerd socket；
+            // 构建节点不使用 privileged 容器，也不挂载宿主机 containerd socket；
             // 镜像构建交给 kaniko（用户态执行，无需 docker daemon）。
             yaml """
 apiVersion: v1
@@ -13,7 +13,6 @@ spec:
     runAsUser: 1000
     fsGroup: 1000
   containers:
-  # 后端：单元测试 + 安全扫描
   - name: python
     image: swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/python:3.11
     command: ['cat']
@@ -21,7 +20,6 @@ spec:
     resources:
       limits: {cpu: "1", memory: "1Gi"}
       requests: {cpu: "200m", memory: "256Mi"}
-  # 前端：npm ci + lint + 生产构建
   - name: node
     image: swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/node:18
     command: ['cat']
@@ -29,7 +27,6 @@ spec:
     resources:
       limits: {cpu: "1", memory: "2Gi"}
       requests: {cpu: "200m", memory: "512Mi"}
-  # 镜像构建与推送
   - name: kaniko
     image: swr.cn-north-4.myhuaweicloud.com/ddn-k8s/gcr.io/kaniko-project/executor:v1.23.2-debug
     command: ['/busybox/cat']
@@ -37,7 +34,6 @@ spec:
     resources:
       limits: {cpu: "1", memory: "2Gi"}
       requests: {cpu: "200m", memory: "512Mi"}
-  # 部署与健康检查
   - name: kubectl
     image: swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/bitnami/kubectl:1.29
     command: ['cat']
@@ -57,40 +53,28 @@ spec:
         disableConcurrentBuilds()
     }
 
-    parameters {
-        choice(name: 'DEPLOY_ENV', choices: ['staging', 'production'], description: '部署目标环境')
-        booleanParam(name: 'RUN_SECURITY_SCAN', defaultValue: true, description: '是否执行安全扫描')
-        string(name: 'IMAGE_TAG_OVERRIDE', defaultValue: '', description: '可选：覆盖镜像 tag（默认取 git short sha）')
-    }
-
-    triggers {
-        // 每天凌晨 2 点定时构建，便于发现上游依赖漂移；push 触发仍由 GitHub Webhook 负责
-        cron('H 2 * * *')
-    }
-
     environment {
-        REGISTRY      = "crpi-m67ogm8wgcr0rh38.cn-hangzhou.personal.cr.aliyuncs.com"
-        REG_NAMESPACE = "${env.ACR_NAMESPACE ?: 'your-namespace'}"
-        IMG_NAME      = "webapp"
-        TAG           = "${params.IMAGE_TAG_OVERRIDE ?: (env.GIT_COMMIT ? env.GIT_COMMIT.take(8) : 'latest')}"
-        FULL_IMG      = "${REGISTRY}/${REG_NAMESPACE}/${IMG_NAME}:${TAG}"
-        K8S_NS        = "webapp"
-        K8S_DEPLOY    = "webapp"
-        STAGING_HOST  = "webapp-staging.example.com"
-        PROD_HOST     = "webapp.example.com"
-        PIP_INDEX     = "https://pypi.tuna.tsinghua.edu.cn/simple"
-        NPM_REGISTRY  = "https://registry.npmmirror.com"
-        GITHUB_REPO   = "aggresgesn-wq/jenkins-gitea-k8s-containerd"
+        REGISTRY       = "crpi-m67ogm8wgcr0rh38.cn-hangzhou.personal.cr.aliyuncs.com"
+        REG_NAMESPACE  = "${env.ACR_NAMESPACE ?: 'your-namespace'}"
+        IMG_NAME       = "webapp"
+        TAG            = "${params.IMAGE_TAG_OVERRIDE ?: (env.GIT_COMMIT ? env.GIT_COMMIT.take(8) : 'latest')}"
+        FULL_IMG       = "${REGISTRY}/${REG_NAMESPACE}/${IMG_NAME}:${TAG}"
+        // staging 与 production 使用不同命名空间，人工批准前不会触碰生产
+        K8S_NS_STAGING = "webapp-staging"
+        K8S_NS_PROD    = "webapp"
+        K8S_DEPLOY     = "webapp"
+        PIP_INDEX      = "https://pypi.tuna.tsinghua.edu.cn/simple"
+        NPM_REGISTRY   = "https://registry.npmmirror.com"
+        GITHUB_REPO    = "aggresgesn-wq/jenkins-gitea-k8s-containerd"
     }
 
     parameters {
-        choice(name: 'DEPLOY_ENV', choices: ['staging', 'production'], description: '部署目标环境')
-        booleanParam(name: 'RUN_SECURITY_SCAN', defaultValue: true, description: '是否执行安全扫描')
+        choice(name: 'DEPLOY_ENV', choices: ['staging', 'production'], description: '是否在测试环境验证后继续发布生产')
+        booleanParam(name: 'RUN_SECURITY_SCAN', defaultValue: true, description: '是否执行安全扫描（关闭仅用于应急）')
         string(name: 'IMAGE_TAG_OVERRIDE', defaultValue: '', description: '可选：覆盖镜像 tag（默认取 git short sha）')
     }
 
     triggers {
-        // 每天凌晨 2 点定时构建，便于发现上游依赖漂移；push 触发仍由 GitHub Webhook 负责
         cron('H 2 * * *')
     }
 
@@ -119,14 +103,14 @@ spec:
             }
         }
 
-        stage('3. 前端构建') {
+        stage('3. 前端 lint 与构建') {
             steps {
                 container('node') {
                     sh '''
                         set -e
                         cd webapp/ui
                         npm ci --registry="$NPM_REGISTRY" --no-audit --no-fund
-                        npm run lint -- --no-fix || echo "lint 存在告警，不阻塞构建"
+                        npm run lint
                         npm run build:prod
                     '''
                     archiveArtifacts artifacts: 'webapp/ui/dist/**', allowEmptyArchive: true
@@ -135,25 +119,44 @@ spec:
         }
 
         stage('4. 安全扫描') {
+            when {
+                expression { params.RUN_SECURITY_SCAN }
+            }
             steps {
                 container('python') {
                     sh '''
                         set -e
                         cd webapp
                         python -m pip install -q --disable-pip-version-check -i "$PIP_INDEX" bandit pip-audit
-                        echo "--- 静态安全扫描 (bandit) ---"
-                        bandit -q -r app -ll -x tests || true
+
+                        echo "--- 静态安全扫描 (bandit, 仅 HIGH) ---"
+                        bandit -q -r app -ll -x tests
+
                         echo "--- 依赖漏洞扫描 (pip-audit) ---"
-                        pip-audit -r <(python - <<'PY'
-import tomllib, pathlib
-deps = tomllib.loads(pathlib.Path("pyproject.toml").read_text())["project"]["dependencies"]
-print("\n".join(deps))
+                        python - <<'PY'
+import pathlib, tomllib
+deps = tomllib.loads(pathlib.Path("pyproject.toml").read_text(encoding="utf-8"))["project"]["dependencies"]
+pathlib.Path("/tmp/requirements-audit.txt").write_text("\n".join(deps), encoding="utf-8")
 PY
-                        ) || true
-                        echo "--- 硬编码密钥检查 ---"
-                        if grep -rInE "(password|passwd|secret|token)[[:space:]]*=[[:space:]]*['\\\"][^'\\\"]{6,}" app config.py | grep -v "os.environ"; then
-                          echo "发现可疑硬编码凭据，构建失败"; exit 1
-                        fi
+                        pip-audit -r /tmp/requirements-audit.txt
+
+                        echo "--- 硬编码凭据检查 ---"
+                        python - <<'PY'
+import pathlib, re, sys
+pattern = re.compile(r"(password|passwd|secret|token)\\s*=\\s*\\S{6,}", re.I)
+hits = []
+for path in list(pathlib.Path("app").rglob("*.py")) + [pathlib.Path("config.py")]:
+    for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+        if "os.environ" in line or "os.getenv" in line:
+            continue
+        if pattern.search(line):
+            hits.append(f"{path}:{number}: {line.strip()}")
+if hits:
+    print("发现可疑硬编码凭据：")
+    print("\\n".join(hits))
+    sys.exit(1)
+print("未发现硬编码凭据")
+PY
                     '''
                 }
             }
@@ -192,20 +195,20 @@ EOF
                 container('kubectl') {
                     sh '''
                         set -e
-                        kubectl -n "$K8S_NS" set image deployment/$K8S_DEPLOY \
+                        kubectl -n "$K8S_NS_STAGING" set image deployment/"$K8S_DEPLOY" \
                           "$K8S_DEPLOY=$FULL_IMG" --record=false
-                        kubectl -n "$K8S_NS" rollout status deployment/$K8S_DEPLOY --timeout=180s
+                        kubectl -n "$K8S_NS_STAGING" rollout status deployment/"$K8S_DEPLOY" --timeout=180s
                     '''
                 }
             }
         }
 
-        stage('7. 健康检查') {
+        stage('7. 测试环境健康检查') {
             steps {
                 container('kubectl') {
                     sh '''
                         set -e
-                        IP=$(kubectl -n "$K8S_NS" get svc "$K8S_DEPLOY" -o jsonpath='{.spec.clusterIP}')
+                        IP=$(kubectl -n "$K8S_NS_STAGING" get svc "$K8S_DEPLOY" -o jsonpath='{.spec.clusterIP}')
                         for path in /health/live /health/ready; do
                           for i in $(seq 1 20); do
                             if curl -fsS "http://$IP$path" >/dev/null; then echo "$path OK"; break; fi
@@ -218,22 +221,37 @@ EOF
             }
         }
 
-        stage('8. 人工批准') {
+        stage('8. 生产发布审批') {
+            when {
+                expression { params.DEPLOY_ENV == 'production' }
+            }
             steps {
-                input message: "确认发布到生产环境 ${FULL_IMG} ?", ok: "发布"
+                input message: "测试环境已通过，确认发布到生产环境 ${FULL_IMG} ?", ok: "发布生产"
             }
         }
 
-        stage('9. 生产部署') {
+        stage('9. 生产部署与健康检查') {
+            when {
+                expression { params.DEPLOY_ENV == 'production' }
+            }
             steps {
                 container('kubectl') {
                     sh '''
                         set -e
-                        kubectl -n "$K8S_NS" annotate deployment/$K8S_DEPLOY \
-                          "ci/previous-image=$(kubectl -n "$K8S_NS" get deployment/$K8S_DEPLOY -o jsonpath='{.spec.template.spec.containers[0].image}')" \
+                        kubectl -n "$K8S_NS_PROD" annotate deployment/"$K8S_DEPLOY" \
+                          "ci/previous-image=$(kubectl -n "$K8S_NS_PROD" get deployment/"$K8S_DEPLOY" -o jsonpath='{.spec.template.spec.containers[0].image}')" \
                           --overwrite
-                        kubectl -n "$K8S_NS" set image deployment/$K8S_DEPLOY "$K8S_DEPLOY=$FULL_IMG"
-                        kubectl -n "$K8S_NS" rollout status deployment/$K8S_DEPLOY --timeout=300s
+                        kubectl -n "$K8S_NS_PROD" set image deployment/"$K8S_DEPLOY" "$K8S_DEPLOY=$FULL_IMG"
+                        kubectl -n "$K8S_NS_PROD" rollout status deployment/"$K8S_DEPLOY" --timeout=300s
+
+                        IP=$(kubectl -n "$K8S_NS_PROD" get svc "$K8S_DEPLOY" -o jsonpath='{.spec.clusterIP}')
+                        for path in /health/live /health/ready; do
+                          for i in $(seq 1 20); do
+                            if curl -fsS "http://$IP$path" >/dev/null; then echo "prod $path OK"; break; fi
+                            [ "$i" = "20" ] && { echo "prod $path 检查失败"; exit 1; }
+                            sleep 3
+                          done
+                        done
                     '''
                 }
             }
@@ -249,10 +267,12 @@ EOF
         failure {
             container('kubectl') {
                 sh '''
-                    # 生产发布失败时自动回滚到上一个版本；测试环境失败则保留现场便于排查
-                    if [ -n "$(kubectl -n "$K8S_NS" get deployment/$K8S_DEPLOY -o jsonpath='{.spec.template.spec.containers[0].image}' | grep "$TAG")" ] \
-                       && [ -n "$(kubectl -n "$K8S_NS" rollout history deployment/$K8S_DEPLOY 2>/dev/null | tail -n +2)" ]; then
-                      kubectl -n "$K8S_NS" rollout undo deployment/$K8S_DEPLOY || true
+                    # 只有生产发布阶段失败才回滚生产；测试环境失败保留现场便于排查
+                    if [ "$DEPLOY_ENV" = "production" ]; then
+                      current=$(kubectl -n "$K8S_NS_PROD" get deployment/"$K8S_DEPLOY" -o jsonpath='{.spec.template.spec.containers[0].image}' 2>/dev/null || true)
+                      if printf '%s' "$current" | grep -q "$TAG"; then
+                        kubectl -n "$K8S_NS_PROD" rollout undo deployment/"$K8S_DEPLOY" || true
+                      fi
                     fi
                 '''
             }
@@ -267,37 +287,38 @@ EOF
 }
 
 /**
- * 把构建结果回写到 GitHub Commit Status。
- * 前提：Jenkins 中存在 Secret text 凭据 `github-token`（repo:status 权限）。
- * Token 缺失或网络异常时只打印告警，不阻塞流水线。
+ * 回写 GitHub Commit Status。
+ * 凭据 `github-token` 缺失或接口失败时只打印告警，不终止流水线。
  */
 def githubStatus(String state, String description) {
-    withEnv(["GH_STATE=${state}", "GH_DESC=${description}"]) {
-        withCredentials([string(credentialsId: 'github-token', variable: 'GITHUB_TOKEN')]) {
-            container('python') {
-                sh '''
-                    set +e
-                    payload=$(printf '{"state":"%s","context":"jenkins/ci","target_url":"%s","description":"%s"}' \
-                      "$GH_STATE" "$BUILD_URL" "$GH_DESC")
-                    curl -fsS -X POST \
-                      -H "Authorization: token $GITHUB_TOKEN" \
-                      -H "Accept: application/vnd.github+json" \
-                      -H "Content-Type: application/json" \
-                      -d "$payload" \
-                      "https://api.github.com/repos/$GITHUB_REPO/statuses/$GIT_COMMIT" >/dev/null
-                    rc=$?
-                    [ $rc -ne 0 ] && echo "WARN: GitHub 提交状态回写失败，请检查 github-token 凭据与权限"
-                    exit 0
-                '''
+    try {
+        withEnv(["GH_STATE=${state}", "GH_DESC=${description}"]) {
+            withCredentials([string(credentialsId: 'github-token', variable: 'GITHUB_TOKEN')]) {
+                container('python') {
+                    sh '''
+                        set +e
+                        payload=$(printf '{"state":"%s","context":"jenkins/ci","target_url":"%s","description":"%s"}' \
+                          "$GH_STATE" "$BUILD_URL" "$GH_DESC")
+                        curl -fsS -X POST \
+                          -H "Authorization: token $GITHUB_TOKEN" \
+                          -H "Accept: application/vnd.github+json" \
+                          -H "Content-Type: application/json" \
+                          -d "$payload" \
+                          "https://api.github.com/repos/$GITHUB_REPO/statuses/$GIT_COMMIT" >/dev/null
+                        rc=$?
+                        [ $rc -ne 0 ] && echo "WARN: GitHub 提交状态回写失败，请检查 github-token 凭据与权限"
+                        exit 0
+                    '''
+                }
             }
         }
+    } catch (err) {
+        echo "未配置 github-token 凭据，跳过提交状态回写"
     }
 }
 
 /**
- * 可选的构建通知（钉钉机器人）。
- * 前提：Jenkins 中存在 Secret text 凭据 `dingtalk-webhook`（完整 Webhook 地址，含 access_token）。
- * 未配置时静默跳过，不影响流水线结果。
+ * 可选的构建通知（钉钉机器人）。凭据缺失时静默跳过。
  */
 def notifyBuild(String result) {
     try {
