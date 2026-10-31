@@ -93,7 +93,7 @@ spec:
         K8S_DEPLOY     = "webapp"
         PIP_INDEX      = "https://pypi.tuna.tsinghua.edu.cn/simple"
         NPM_REGISTRY   = "https://registry.npmmirror.com"
-        GITHUB_REPO    = "aggresgesn-wq/jenkins-gitea-k8s-containerd"
+        GITHUB_REPO    = "aggresgesn-wq/jenkins-github-k8s-containerd"
     }
 
     parameters {

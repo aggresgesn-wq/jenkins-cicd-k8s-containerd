@@ -11,7 +11,7 @@ pipelineJob('webapp-pipeline') {
             scm {
                 git {
                     remote {
-                        url('https://github.com/aggresgesn-wq/jenkins-gitea-k8s-containerd.git')
+                        url('https://github.com/aggresgesn-wq/jenkins-github-k8s-containerd.git')
                         credentials('github-scm')
                     }
                     branch('*/main')
