@@ -1,0 +1,49 @@
+# 版本控制与 CI 元数据（构建上下文用不到）
+.git
+.gitignore
+.gitattributes
+Jenkinsfile
+README.md
+LICENSE
+pom.xml
+
+# 前端依赖与本地构建产物（镜像内会重新构建）
+ui/node_modules
+ui/dist
+
+# Python 缓存与虚拟环境
+__pycache__/
+**/__pycache__/
+*.pyc
+*.pyo
+*.pyd
+**/*.pyc
+.venv/
+venv/
+env/
+.pip-tmp/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# 测试、文档与截图
+tests/
+doc/
+
+# 运行期数据（容器内由 emptyDir / PVC 提供）
+uploads/
+app.log
+*.log
+*.sqlite
+*.sqlite3
+db.sql
+init-user.sql
+
+# 编辑器与操作系统文件
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# 本目录下的旧版容器辅助文件（应用镜像不需要）
+docker/

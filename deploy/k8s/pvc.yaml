@@ -1,0 +1,24 @@
+# 头像上传目录 /app/uploads 的持久化存储。
+#
+# 2 副本需要 ReadWriteMany（NFS / CephFS / NAS 等共享存储）。
+# 如果集群 StorageClass 只支持 ReadWriteOnce（云盘、local-path 等）：
+#   1. 把 accessModes 改成 ReadWriteOnce；
+#   2. 把 deployment.yaml 的 replicas 改为 1。
+# RWO 卷无法被跨节点运行的多个 Pod 同时挂载。
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: webapp-uploads
+  namespace: webapp
+  labels:
+    app: webapp
+    app.kubernetes.io/name: webapp
+spec:
+  accessModes:
+    - ReadWriteMany
+  resources:
+    requests:
+      storage: 5Gi
+  # 不写 storageClassName 表示使用集群默认 StorageClass；
+  # 需要指定时取消注释并替换为实际名称（例如 nfs-client）。
+  # storageClassName: nfs-client

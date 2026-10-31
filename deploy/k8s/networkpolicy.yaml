@@ -1,0 +1,75 @@
+# 网络策略：默认拒绝入站，仅放行 ingress-nginx 访问 webapp，
+# 并限制 webapp 的出站流量为 DNS / MySQL / HTTPS。
+#
+# 注意：
+# * NetworkPolicy 需要 CNI 支持（Calico、Cilium、Antrea 等）；flannel 默认不生效。
+# * ingress-nginx 的命名空间若不是 ingress-nginx，请调整 namespaceSelector。
+# * 若 CNI 连 kubelet 探针流量也拦截，需要额外放行节点网段（不同 CNI 行为不同）。
+# * 下面 MySQL 使用 0.0.0.0/0:3306，生产环境建议收窄为数据库实际 IP/CIDR。
+---
+# 1) 命名空间级默认拒绝入站：任何 Pod 默认不可被访问，下面的策略再按需放行。
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-ingress
+  namespace: webapp
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+---
+# 2) webapp 的最小放行规则。
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: webapp-allow
+  namespace: webapp
+  labels:
+    app: webapp
+spec:
+  podSelector:
+    matchLabels:
+      app: webapp
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # 只允许 ingress-nginx 命名空间中的 Pod 访问容器端口 5000
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ingress-nginx
+      ports:
+        - protocol: TCP
+          port: 5000
+  egress:
+    # 集群 DNS（CoreDNS 通常带 k8s-app=kube-dns 标签）；
+    # 若使用 NodeLocal DNSCache 或 DNS 不在 kube-system，请补充对应规则。
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+
+    # MySQL：生产环境把 cidr 收窄为数据库实际网段/地址
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+      ports:
+        - protocol: TCP
+          port: 3306
+
+    # HTTPS：访问外部 API（如邮件、第三方服务）
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+      ports:
+        - protocol: TCP
+          port: 443

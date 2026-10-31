@@ -1,0 +1,29 @@
+# 非敏感运行时配置。
+# 敏感值（SECRET_KEY、DATABASE_URI、CAPTCHA_SECRET_KEY）一律放在 Secret 中，见 secret.example.yaml。
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: webapp-config
+  namespace: webapp
+  labels:
+    app: webapp
+    app.kubernetes.io/name: webapp
+data:
+  # 应用配置档；production 会强制校验 SECRET_KEY / DATABASE_URI / CAPTCHA_SECRET_KEY
+  FLASK_CONFIG: "production"
+
+  # 日志级别：DEBUG / INFO / WARNING / ERROR / CRITICAL
+  LOG_LEVEL: "INFO"
+
+  # 会话有效期（秒），默认 8 小时，与 config.py 的默认值一致
+  SESSION_LIFETIME_SECONDS: "28800"
+
+  # 仅通过 HTTPS 发送会话 Cookie。
+  # 默认 false 便于未启用 TLS 时调试；启用 TLS 后务必改为 "true"（见 deploy/README.md）。
+  SESSION_COOKIE_SECURE: "false"
+
+  # 请求体上限 5 MiB；头像上传接口自身还会限制为 2 MiB
+  MAX_CONTENT_LENGTH: "5242880"
+
+  # gunicorn worker 数：2 副本 × 4 worker
+  GUNICORN_WORKERS: "4"

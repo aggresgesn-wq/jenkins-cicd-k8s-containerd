@@ -1,0 +1,49 @@
+# Jenkins 构建 Pod 使用的最小权限 RBAC
+#
+# 说明：
+#   * ServiceAccount 必须与 Jenkins Agent Pod 处于同一命名空间（默认 jenkins），
+#     因此这里单独列出，安装 Jenkins 时先执行：
+#       kubectl -n jenkins apply -f jenkins-rbac.yaml 的 ServiceAccount 部分
+#   * Role/RoleBinding 位于业务命名空间 webapp，只允许滚动更新 Deployment 和查看状态，
+#     不授予集群级权限，也禁止读取 Secret。
+#   * 若 Jenkins 安装在其他命名空间，请把 jenkins-deployer 的 namespace 与
+#     RoleBinding subjects 中的 namespace 一起替换。
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: jenkins-deployer
+  namespace: jenkins
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: jenkins-deployer
+  namespace: webapp
+rules:
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get", "list", "watch", "patch", "update"]
+  - apiGroups: ["apps"]
+    resources: ["replicasets"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["pods", "pods/log", "services", "endpoints"]
+    verbs: ["get", "list", "watch"]
+  # Jenkins 健康检查阶段需要 port-forward 到 Service
+  - apiGroups: [""]
+    resources: ["pods/portforward", "services/portforward"]
+    verbs: ["create", "get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: jenkins-deployer
+  namespace: webapp
+subjects:
+  - kind: ServiceAccount
+    name: jenkins-deployer
+    namespace: jenkins
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: jenkins-deployer

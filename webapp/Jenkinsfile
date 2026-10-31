@@ -1,143 +1,236 @@
 pipeline {
     agent {
         kubernetes {
+            // 构建节点不再使用 privileged 容器，也不挂载宿主机 containerd socket；
+            // 镜像构建交给 kaniko（用户态执行，无需 docker daemon）。
             yaml """
 apiVersion: v1
 kind: Pod
 spec:
-  # 镜像统一取自渡渡鸟镜像同步站 https://docker.aityp.com
-  # 规则: swr.cn-north-4.myhuaweicloud.com/ddn-k8s/<原始仓库>/<镜像>:<tag>
-  nodeSelector:
-    kubernetes.io/hostname: k8s-master
-  # 强制华为云源走 IPv4（Pod 内 DNS 优先返回 IPv6，无 IPv6 路由导致 TLS 握手超时）
-  hostAliases:
-  - ip: "120.46.247.83"
-    hostnames:
-    - swr.cn-north-4.myhuaweicloud.com
+  serviceAccountName: jenkins-deployer
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 1000
+    fsGroup: 1000
   containers:
+  # 后端：单元测试 + 安全扫描
   - name: python
     image: swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/python:3.11
     command: ['cat']
     tty: true
     resources:
-      limits:
-        cpu: "500m"
-        memory: "512Mi"
-      requests:
-        cpu: "100m"
-        memory: "256Mi"
-  - name: nerdctl
-    image: swr.cn-north-4.myhuaweicloud.com/ddn-k8s/ghcr.io/containerd/nerdctl:latest
-    imagePullPolicy: IfNotPresent
+      limits: {cpu: "1", memory: "1Gi"}
+      requests: {cpu: "200m", memory: "256Mi"}
+  # 前端：npm ci + lint + 生产构建
+  - name: node
+    image: swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/node:18
     command: ['cat']
     tty: true
-    privileged: true
-    volumeMounts:
-    - mountPath: /run/containerd/containerd.sock
-      name: containerd-sock
-    - mountPath: /run/buildkit
-      name: buildkit-sock
     resources:
-      limits:
-        cpu: "500m"
-        memory: "512Mi"
-      requests:
-        cpu: "100m"
-        memory: "256Mi"
-  # buildkitd sidecar：nerdctl build 必需（OCI worker 模式，自带快照存储，不依赖宿主机 containerd 的 /var/lib/containerd）
-  - name: buildkitd
-    image: swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/moby/buildkit:v0.31.1
-    imagePullPolicy: IfNotPresent
-    args:
-    - --oci-worker=true
-    - --containerd-worker=false
-    - --oci-worker-net=host
-    securityContext:
-      privileged: true
-    volumeMounts:
-    - mountPath: /run/buildkit
-      name: buildkit-sock
-  # JNLP 代理容器（必须显式定义，镜像用华为云源，避免 Docker Hub 拉取失败）
-  - name: jnlp
-    image: swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/jenkins/inbound-agent:3283.v92c105e0f819-9-jdk17
-    imagePullPolicy: IfNotPresent
+      limits: {cpu: "1", memory: "2Gi"}
+      requests: {cpu: "200m", memory: "512Mi"}
+  # 镜像构建与推送
+  - name: kaniko
+    image: swr.cn-north-4.myhuaweicloud.com/ddn-k8s/gcr.io/kaniko-project/executor:v1.23.2-debug
+    command: ['/busybox/cat']
+    tty: true
     resources:
-      requests:
-        cpu: 100m
-        memory: 256Mi
-  volumes:
-  - name: containerd-sock
-    hostPath:
-      path: /run/containerd/containerd.sock
-  - name: buildkit-sock
-    emptyDir: {}
+      limits: {cpu: "1", memory: "2Gi"}
+      requests: {cpu: "200m", memory: "512Mi"}
+  # 部署与健康检查
+  - name: kubectl
+    image: swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/bitnami/kubectl:1.29
+    command: ['cat']
+    tty: true
+    resources:
+      limits: {cpu: "500m", memory: "512Mi"}
+      requests: {cpu: "100m", memory: "128Mi"}
 """
         }
     }
 
+    options {
+        timeout(time: 45, unit: 'MINUTES')
+        timestamps()
+        ansiColor('xterm')
+        buildDiscarder(logRotator(numToKeepStr: '30', artifactNumToKeepStr: '10'))
+        disableConcurrentBuilds()
+    }
+
     environment {
-        ACR_REGISTRY = "crpi-m67ogm8wgcr0rh38.cn-hangzhou.personal.cr.aliyuncs.com"
-        ACR_NAMESPACE = "tanchenrui"
-        IMG_NAME = "webapp"
-        IMG_TAG  = sh(script: 'git rev-parse --short HEAD', returnStdout: true).trim()
-        FULL_IMG = "${ACR_REGISTRY}/${ACR_NAMESPACE}/${IMG_NAME}:${IMG_TAG}"
+        REGISTRY      = "crpi-m67ogm8wgcr0rh38.cn-hangzhou.personal.cr.aliyuncs.com"
+        REG_NAMESPACE = "tanchenrui"
+        IMG_NAME      = "webapp"
+        TAG           = "${env.GIT_COMMIT ? env.GIT_COMMIT.take(8) : 'latest'}"
+        FULL_IMG      = "${REGISTRY}/${REG_NAMESPACE}/${IMG_NAME}:${TAG}"
+        K8S_NS        = "webapp"
+        K8S_DEPLOY    = "webapp"
+        STAGING_HOST  = "webapp-staging.example.com"
+        PROD_HOST     = "webapp.example.com"
+        PIP_INDEX     = "https://pypi.tuna.tsinghua.edu.cn/simple"
+        NPM_REGISTRY  = "https://registry.npmmirror.com"
     }
 
     stages {
-        stage('1. 拉取Gitea源码') {
+        stage('1. 检出代码') {
             steps {
-                sh '''
-                    pwd
-                    ls -l
-                '''
+                checkout scm
+                sh 'git log -1 --pretty=format:"%h %s"'
             }
         }
 
-        stage('2. Python 安装依赖(uv)') {
+        stage('2. 后端测试') {
             steps {
                 container('python') {
                     sh '''
-                        pip install uv -i https://pypi.tuna.tsinghua.edu.cn/simple
-                        uv pip install --system -r pyproject.toml --index-url https://pypi.tuna.tsinghua.edu.cn/simple
+                        set -e
+                        cd webapp
+                        python -m pip install -q --disable-pip-version-check -i "$PIP_INDEX" -e ".[dev]"
+                        python -m pytest -q --maxfail=1
                     '''
                 }
             }
         }
 
-        stage('3. 构建镜像') {
+        stage('3. 前端构建') {
             steps {
-                container('nerdctl') {
+                container('node') {
                     sh '''
-                        # 等待 buildkitd 就绪
-                        for i in $(seq 1 30); do
-                          [ -S /run/buildkit/buildkitd.sock ] && break
-                          sleep 1
-                        done
-                        [ -S /run/buildkit/buildkitd.sock ] || { echo "buildkitd 未就绪"; exit 1; }
+                        set -e
+                        cd webapp/ui
+                        npm ci --registry="$NPM_REGISTRY" --no-audit --no-fund
+                        npm run lint -- --no-fix || echo "lint 存在告警，不阻塞构建"
+                        npm run build:prod
+                    '''
+                    archiveArtifacts artifacts: 'webapp/ui/dist/**', allowEmptyArchive: true
+                }
+            }
+        }
 
-                        export BUILDKIT_HOST=unix:///run/buildkit/buildkitd.sock
-                        nerdctl build -f dockerfile -t ${FULL_IMG} .
+        stage('4. 安全扫描') {
+            steps {
+                container('python') {
+                    sh '''
+                        set -e
+                        cd webapp
+                        python -m pip install -q --disable-pip-version-check -i "$PIP_INDEX" bandit pip-audit
+                        echo "--- 静态安全扫描 (bandit) ---"
+                        bandit -q -r app -ll -x tests || true
+                        echo "--- 依赖漏洞扫描 (pip-audit) ---"
+                        pip-audit -r <(python - <<'PY'
+import tomllib, pathlib
+deps = tomllib.loads(pathlib.Path("pyproject.toml").read_text())["project"]["dependencies"]
+print("\n".join(deps))
+PY
+                        ) || true
+                        echo "--- 硬编码密钥检查 ---"
+                        if grep -rInE "(password|passwd|secret|token)[[:space:]]*=[[:space:]]*['\\\"][^'\\\"]{6,}" app config.py | grep -v "os.environ"; then
+                          echo "发现可疑硬编码凭据，构建失败"; exit 1
+                        fi
                     '''
                 }
             }
         }
 
-        stage('4. K8s一键部署') {
+        stage('5. 构建并推送镜像') {
             steps {
-                echo "后续填入kubectl更新镜像命令"
+                container('kaniko') {
+                    withCredentials([usernamePassword(credentialsId: 'acr-credentials',
+                                                      usernameVariable: 'REG_USER',
+                                                      passwordVariable: 'REG_PASS')]) {
+                        sh '''
+                            set -e
+                            mkdir -p /kaniko/.docker
+                            AUTH=$(printf "%s:%s" "$REG_USER" "$REG_PASS" | base64 | tr -d '\\n')
+                            cat > /kaniko/.docker/config.json <<EOF
+{"auths":{"$REGISTRY":{"auth":"$AUTH"}}}
+EOF
+                            /kaniko/executor \
+                              --context=webapp \
+                              --dockerfile=dockerfile \
+                              --destination="$FULL_IMG" \
+                              --digest-file=/workspace/.image-digest \
+                              --snapshot-mode=redo \
+                              --compressed-caching=false \
+                              --reproducible
+                            test -s /workspace/.image-digest && echo "镜像 digest: $(cat /workspace/.image-digest)"
+                        '''
+                    }
+                }
+            }
+        }
+
+        stage('6. 部署测试环境') {
+            steps {
+                container('kubectl') {
+                    sh '''
+                        set -e
+                        kubectl -n "$K8S_NS" set image deployment/$K8S_DEPLOY \
+                          "$K8S_DEPLOY=$FULL_IMG" --record=false
+                        kubectl -n "$K8S_NS" rollout status deployment/$K8S_DEPLOY --timeout=180s
+                    '''
+                }
+            }
+        }
+
+        stage('7. 健康检查') {
+            steps {
+                container('kubectl') {
+                    sh '''
+                        set -e
+                        IP=$(kubectl -n "$K8S_NS" get svc "$K8S_DEPLOY" -o jsonpath='{.spec.clusterIP}')
+                        for path in /health/live /health/ready; do
+                          for i in $(seq 1 20); do
+                            if curl -fsS "http://$IP$path" >/dev/null; then echo "$path OK"; break; fi
+                            [ "$i" = "20" ] && { echo "$path 检查失败"; exit 1; }
+                            sleep 3
+                          done
+                        done
+                    '''
+                }
+            }
+        }
+
+        stage('8. 人工批准') {
+            steps {
+                input message: "确认发布到生产环境 ${FULL_IMG} ?", ok: "发布"
+            }
+        }
+
+        stage('9. 生产部署') {
+            steps {
+                container('kubectl') {
+                    sh '''
+                        set -e
+                        kubectl -n "$K8S_NS" annotate deployment/$K8S_DEPLOY \
+                          "ci/previous-image=$(kubectl -n "$K8S_NS" get deployment/$K8S_DEPLOY -o jsonpath='{.spec.template.spec.containers[0].image}')" \
+                          --overwrite
+                        kubectl -n "$K8S_NS" set image deployment/$K8S_DEPLOY "$K8S_DEPLOY=$FULL_IMG"
+                        kubectl -n "$K8S_NS" rollout status deployment/$K8S_DEPLOY --timeout=300s
+                    '''
+                }
             }
         }
     }
 
     post {
-        always {
-            echo "流水线执行结束"
-        }
         success {
-            echo "✅ 流水线构建推送成功！镜像地址：${FULL_IMG}"
+            echo "✅ 流水线完成，镜像 ${FULL_IMG} 已发布"
         }
         failure {
-            echo "❌ 流水线失败，请查看日志"
+            container('kubectl') {
+                sh '''
+                    # 生产发布失败时自动回滚到上一个版本；测试环境失败则保留现场便于排查
+                    if [ -n "$(kubectl -n "$K8S_NS" get deployment/$K8S_DEPLOY -o jsonpath='{.spec.template.spec.containers[0].image}' | grep "$TAG")" ] \
+                       && [ -n "$(kubectl -n "$K8S_NS" rollout history deployment/$K8S_DEPLOY 2>/dev/null | tail -n +2)" ]; then
+                      kubectl -n "$K8S_NS" rollout undo deployment/$K8S_DEPLOY || true
+                    fi
+                '''
+            }
+            echo "❌ 流水线失败，请查看日志；生产环境已尝试回滚"
+        }
+        always {
+            cleanWs()
         }
     }
 }

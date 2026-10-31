@@ -1,0 +1,8 @@
+# webapp 专用命名空间：Flask + Vue 应用及其配置、存储、网络策略都放在这里。
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: webapp
+  labels:
+    app.kubernetes.io/name: webapp
+    app.kubernetes.io/part-of: authbase

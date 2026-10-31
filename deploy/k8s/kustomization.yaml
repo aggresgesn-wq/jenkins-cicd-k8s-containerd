@@ -1,0 +1,23 @@
+# 一键部署：kubectl apply -k deploy/k8s
+# 注意：secret.example.yaml 故意不列入资源，避免用占位符覆盖线上真实 Secret；
+# 请先按 deploy/README.md 创建 webapp-secret。
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# 统一设置命名空间（cluster-scoped 的 Namespace 资源不会被改写）
+namespace: webapp
+
+resources:
+  - namespace.yaml
+  - serviceaccount.yaml
+  - configmap.yaml
+  - pvc.yaml
+  - deployment.yaml
+  - service.yaml
+  - ingress.yaml
+  - networkpolicy.yaml
+  - pdb.yaml
+
+# CI 发布时可在 deploy/k8s 目录执行：
+#   kustomize edit set image IMAGE_PLACEHOLDER=<镜像仓库>/tanchenrui/webapp:<git-short-sha>
+# 再 kubectl apply -k .；也可以先 apply 再用 kubectl set image 触发滚动更新。
