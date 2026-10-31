@@ -11,6 +11,17 @@
 - 镜像构建当前使用 **kaniko**（无特权、不挂载 containerd.sock），图中同时用紫色虚线标出目标形态 Rootless BuildKit；
 - 发布使用 **Kustomize + kubectl**（`kubectl kustomize overlays/... | kubectl apply`），尚未引入 Argo CD/Flux，因此不宣称 GitOps。
 
+### 设计愿景（早期规划稿）
+
+<img src="docs/images/architecture-vision.png" width="980" alt="架构设计愿景图"/>
+
+> 这是早期汇报用的视觉稿，**与当前实现存在差异**，请以上方架构图与 `webapp/Jenkinsfile` 为准：
+>
+> - 代码托管：图中为 Gitea，当前为 **GitHub**（Gitea 安装见 [deploy/gitea/README.md](deploy/gitea/README.md)）；
+> - 镜像构建：图中为 Rootless BuildKit，当前为 **Kaniko**；
+> - 发布方式：图中为 Helm Upgrade/GitOps，当前为 **Kustomize + kubectl apply**；
+> - 图中“镜像仓库 Namespace”“containerd 位于 WebApp Namespace”属于简化表达，实际镜像仓库在集群外，containerd 是节点级运行时。
+
 - 仓库地址：<https://github.com/aggresgesn-wq/jenkins-cicd-k8s-containerd>
 - 应用目录：[webapp/](webapp)
 - 生产启动方式：gunicorn，入口 `webapp/wsgi.py:app`，容器端口 `5000`
