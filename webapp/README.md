@@ -58,7 +58,19 @@ mysql -h 127.0.0.1 -u root -p authbase -e "source db.sql"
 
 `db.sql` 只包含表结构与种子数据，不包含 `CREATE DATABASE`，因此必须先建库。数据库名可按需调整，但要保持与 `DATABASE_URI` 一致。
 
-### 2. 启动后端（uv）
+### 2.1 初始化管理员密码（必须）
+
+`db.sql` 的种子账号不包含可用密码，启动前先执行：
+
+```powershell
+# 目录：E:\CICD\webapp（PowerShell；也可用 --password 指定）
+$env:DATABASE_URI = "mysql+mysqlconnector://root:REPLACE_ME@127.0.0.1:3306/authbase?charset=utf8mb4"
+python scripts/reset_password.py --username admin
+```
+
+脚本会打印一次随机密码，请立即保存。存量环境可执行 `python scripts/check_default_passwords.py` 检查是否还有弱默认口令（发现时退出码为 1）。
+
+### 3. 启动后端（uv）
 
 ```powershell
 # 目录：E:\CICD\webapp（PowerShell）

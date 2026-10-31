@@ -1,0 +1,121 @@
+# Jenkins Controller 的 Helm values（对应 chart: jenkins/jenkins）
+#
+# 安装：
+#   helm repo add jenkins https://charts.jenkins.io && helm repo update
+#   kubectl create namespace jenkins
+#   kubectl -n jenkins create secret generic jenkins-admin \
+#     --from-literal=jenkins-admin-user=admin \
+#     --from-literal=jenkins-admin-password="$(openssl rand -base64 24)"
+#   helm upgrade --install jenkins jenkins/jenkins -n jenkins -f deploy/jenkins/values.yaml --wait
+#
+# 注意：
+#   * adminPassword 不要写进 values，统一用 existingSecret 注入；
+#   * 生产环境务必启用 HTTPS（controller.ingress.tls）并限制访问来源；
+#   * 构建 Pod 需要能访问集群 API，RBAC 见 deploy/k8s/jenkins-rbac.yaml。
+
+controller:
+  componentName: "jenkins-controller"
+  image:
+    registry: "swr.cn-north-4.myhuaweicloud.com"
+    repository: "ddn-k8s/docker.io/jenkins/jenkins"
+    tag: "lts-jdk17"
+    pullPolicy: IfNotPresent
+
+  adminUser: "admin"
+  # 由 `kubectl create secret generic jenkins-admin` 提供，键名固定
+  existingSecret: "jenkins-admin"
+
+  # 国内网络建议使用的插件集合（其余按需在 UI 安装）
+  installPlugins:
+    - kubernetes
+    - workflow-aggregator
+    - workflow-cps
+    - git
+    - github
+    - github-branch-source
+    - configuration-as-code
+    - credentials-binding
+    - ssh-credentials
+    - junit
+    - ws-cleanup
+    - timestamper
+    - ansicolor
+    - dingding-notifications
+
+  # Jenkins 自身资源；构建负载由动态 Agent Pod 承担，Controller 不必很大
+  resources:
+    requests:
+      cpu: "500m"
+      memory: "1Gi"
+    limits:
+      cpu: "2"
+      memory: "3Gi"
+
+  javaOpts: "-Xms512m -Xmx2g -Duser.timezone=Asia/Shanghai"
+
+  serviceType: "ClusterIP"
+  servicePort: 8080
+  targetPort: 8080
+
+  ingress:
+    enabled: true
+    ingressClassName: "nginx"
+    hostName: "jenkins.example.com"
+    annotations:
+      nginx.ingress.kubernetes.io/proxy-body-size: "50m"
+      # cert-manager 用户可启用：
+      # cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    tls:
+      - secretName: jenkins-tls
+        hosts:
+          - jenkins.example.com
+
+  # 只读根文件系统 + 非 root 运行（chart 默认 uid 1000）
+  containerSecurityContext:
+    runAsUser: 1000
+    runAsNonRoot: true
+    readOnlyRootFilesystem: true
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop: ["ALL"]
+
+  # 允许 Jenkins 在 Pod 内调用 kubectl/kaniko 等外部工具时的 PATH（PDF 5.1.7.1 的坑）
+  containerEnv:
+    - name: PATH
+      value: "/opt/java/openjdk/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+
+  # JCasC：仅放非敏感的通用设置；凭据与云配置建议在 UI 完成或用 Secret 注入
+  JCasC:
+    defaultConfig: true
+    configScripts:
+      welcome: |
+        jenkins:
+          systemMessage: "Jenkins for jenkins-gitea-k8s-containerd（CI/CD 示例）"
+        unclassified:
+          location:
+            url: "https://jenkins.example.com/"
+
+# 动态构建 Agent：每个流水线启动独立 Pod，构建完即销毁
+agent:
+  enabled: true
+  image:
+    registry: "swr.cn-north-4.myhuaweicloud.com"
+    repository: "ddn-k8s/docker.io/jenkins/inbound-agent"
+    tag: "3283.v92c105e0f819-9-jdk17"
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "256Mi"
+    limits:
+      cpu: "500m"
+      memory: "512Mi"
+
+persistence:
+  enabled: true
+  size: "20Gi"
+  # storageClassName: "standard"   # 留空使用默认 StorageClass
+  accessMode: "ReadWriteOnce"
+
+# 需要避免 Jenkins 与业务 Pod 抢占节点时可启用
+# tolerations: []
+# nodeSelector: {}

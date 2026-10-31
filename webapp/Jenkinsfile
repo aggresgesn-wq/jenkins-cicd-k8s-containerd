@@ -57,11 +57,22 @@ spec:
         disableConcurrentBuilds()
     }
 
+    parameters {
+        choice(name: 'DEPLOY_ENV', choices: ['staging', 'production'], description: '部署目标环境')
+        booleanParam(name: 'RUN_SECURITY_SCAN', defaultValue: true, description: '是否执行安全扫描')
+        string(name: 'IMAGE_TAG_OVERRIDE', defaultValue: '', description: '可选：覆盖镜像 tag（默认取 git short sha）')
+    }
+
+    triggers {
+        // 每天凌晨 2 点定时构建，便于发现上游依赖漂移；push 触发仍由 GitHub Webhook 负责
+        cron('H 2 * * *')
+    }
+
     environment {
         REGISTRY      = "crpi-m67ogm8wgcr0rh38.cn-hangzhou.personal.cr.aliyuncs.com"
-        REG_NAMESPACE = "tanchenrui"
+        REG_NAMESPACE = "${env.ACR_NAMESPACE ?: 'your-namespace'}"
         IMG_NAME      = "webapp"
-        TAG           = "${env.GIT_COMMIT ? env.GIT_COMMIT.take(8) : 'latest'}"
+        TAG           = "${params.IMAGE_TAG_OVERRIDE ?: (env.GIT_COMMIT ? env.GIT_COMMIT.take(8) : 'latest')}"
         FULL_IMG      = "${REGISTRY}/${REG_NAMESPACE}/${IMG_NAME}:${TAG}"
         K8S_NS        = "webapp"
         K8S_DEPLOY    = "webapp"
@@ -69,13 +80,26 @@ spec:
         PROD_HOST     = "webapp.example.com"
         PIP_INDEX     = "https://pypi.tuna.tsinghua.edu.cn/simple"
         NPM_REGISTRY  = "https://registry.npmmirror.com"
+        GITHUB_REPO   = "aggresgesn-wq/jenkins-gitea-k8s-containerd"
+    }
+
+    parameters {
+        choice(name: 'DEPLOY_ENV', choices: ['staging', 'production'], description: '部署目标环境')
+        booleanParam(name: 'RUN_SECURITY_SCAN', defaultValue: true, description: '是否执行安全扫描')
+        string(name: 'IMAGE_TAG_OVERRIDE', defaultValue: '', description: '可选：覆盖镜像 tag（默认取 git short sha）')
+    }
+
+    triggers {
+        // 每天凌晨 2 点定时构建，便于发现上游依赖漂移；push 触发仍由 GitHub Webhook 负责
+        cron('H 2 * * *')
     }
 
     stages {
-        stage('1. 检出代码') {
+        stage('1. 检出代码（GitHub）') {
             steps {
                 checkout scm
                 sh 'git log -1 --pretty=format:"%h %s"'
+                githubStatus('pending', 'pipeline started')
             }
         }
 
@@ -85,10 +109,13 @@ spec:
                     sh '''
                         set -e
                         cd webapp
+                        mkdir -p reports
                         python -m pip install -q --disable-pip-version-check -i "$PIP_INDEX" -e ".[dev]"
-                        python -m pytest -q --maxfail=1
+                        python -m pytest -q --maxfail=1 --junitxml=reports/junit.xml
                     '''
                 }
+                junit allowEmptyResults: true, testResults: 'webapp/reports/junit.xml'
+                archiveArtifacts artifacts: 'webapp/reports/junit.xml', allowEmptyArchive: true
             }
         }
 
@@ -215,6 +242,8 @@ EOF
 
     post {
         success {
+            githubStatus('success', 'pipeline succeeded')
+            notifyBuild('SUCCESS')
             echo "✅ 流水线完成，镜像 ${FULL_IMG} 已发布"
         }
         failure {
@@ -228,9 +257,63 @@ EOF
                 '''
             }
             echo "❌ 流水线失败，请查看日志；生产环境已尝试回滚"
+            githubStatus('failure', 'pipeline failed, see Jenkins logs')
+            notifyBuild('FAILURE')
         }
         always {
             cleanWs()
         }
+    }
+}
+
+/**
+ * 把构建结果回写到 GitHub Commit Status。
+ * 前提：Jenkins 中存在 Secret text 凭据 `github-token`（repo:status 权限）。
+ * Token 缺失或网络异常时只打印告警，不阻塞流水线。
+ */
+def githubStatus(String state, String description) {
+    withEnv(["GH_STATE=${state}", "GH_DESC=${description}"]) {
+        withCredentials([string(credentialsId: 'github-token', variable: 'GITHUB_TOKEN')]) {
+            container('python') {
+                sh '''
+                    set +e
+                    payload=$(printf '{"state":"%s","context":"jenkins/ci","target_url":"%s","description":"%s"}' \
+                      "$GH_STATE" "$BUILD_URL" "$GH_DESC")
+                    curl -fsS -X POST \
+                      -H "Authorization: token $GITHUB_TOKEN" \
+                      -H "Accept: application/vnd.github+json" \
+                      -H "Content-Type: application/json" \
+                      -d "$payload" \
+                      "https://api.github.com/repos/$GITHUB_REPO/statuses/$GIT_COMMIT" >/dev/null
+                    rc=$?
+                    [ $rc -ne 0 ] && echo "WARN: GitHub 提交状态回写失败，请检查 github-token 凭据与权限"
+                    exit 0
+                '''
+            }
+        }
+    }
+}
+
+/**
+ * 可选的构建通知（钉钉机器人）。
+ * 前提：Jenkins 中存在 Secret text 凭据 `dingtalk-webhook`（完整 Webhook 地址，含 access_token）。
+ * 未配置时静默跳过，不影响流水线结果。
+ */
+def notifyBuild(String result) {
+    try {
+        withEnv(["NOTIFY_RESULT=${result}"]) {
+            withCredentials([string(credentialsId: 'dingtalk-webhook', variable: 'DINGTALK_WEBHOOK')]) {
+                container('python') {
+                    sh '''
+                        payload=$(printf '{"msgtype":"text","text":{"content":"Jenkins 构建 %s | %s | %s"}}' \
+                          "$NOTIFY_RESULT" "$JOB_NAME" "$BUILD_URL")
+                        curl -fsS -H 'Content-Type: application/json' -d "$payload" "$DINGTALK_WEBHOOK" \
+                          || echo "WARN: 钉钉通知发送失败"
+                    '''
+                }
+            }
+        }
+    } catch (err) {
+        echo "未配置 dingtalk-webhook 凭据，跳过构建通知"
     }
 }

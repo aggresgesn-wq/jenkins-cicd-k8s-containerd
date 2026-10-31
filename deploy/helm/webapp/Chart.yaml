@@ -1,0 +1,14 @@
+apiVersion: v2
+name: webapp
+description: Flask + Vue 后台权限系统（Jenkins + GitHub + K8s CI/CD 示例应用）
+type: application
+version: 0.1.0
+appVersion: "2.2.0"
+keywords:
+  - flask
+  - vue
+  - rbac
+  - cicd
+home: https://github.com/aggresgesn-wq/jenkins-gitea-k8s-containerd
+sources:
+  - https://github.com/aggresgesn-wq/jenkins-gitea-k8s-containerd

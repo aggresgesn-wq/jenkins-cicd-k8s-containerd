@@ -17,7 +17,13 @@ resources:
   - ingress.yaml
   - networkpolicy.yaml
   - pdb.yaml
+  - hpa.yaml
+
+# 可选组件（按需启用，启用前先创建对应 Secret）：
+#   - mysql.yaml                  # 示例 MySQL StatefulSet（需先创建 mysql-secret）
+#   - mysql-backup-cronjob.yaml   # 每日 mysqldump 备份（需 mysql-secret 与 StorageClass）
+#   - jenkins-rbac.yaml           # Jenkins 构建 Pod 的最小权限（含 jenkins 命名空间的 ServiceAccount）
 
 # CI 发布时可在 deploy/k8s 目录执行：
-#   kustomize edit set image IMAGE_PLACEHOLDER=<镜像仓库>/tanchenrui/webapp:<git-short-sha>
+#   kustomize edit set image IMAGE_PLACEHOLDER=<镜像仓库>/<acr-namespace>/webapp:<git-short-sha>
 # 再 kubectl apply -k .；也可以先 apply 再用 kubectl set image 触发滚动更新。

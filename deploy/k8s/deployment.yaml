@@ -2,7 +2,7 @@
 #
 # 镜像占位符 IMAGE_PLACEHOLDER 由 CI 在部署时替换，例如：
 #   kubectl -n webapp set image deployment/webapp webapp=\
-#     crpi-m67ogm8wgcr0rh38.cn-hangzhou.personal.cr.aliyuncs.com/tanchenrui/webapp:<git-short-sha>
+#     crpi-m67ogm8wgcr0rh38.cn-hangzhou.personal.cr.aliyuncs.com/<acr-namespace>/webapp:<git-short-sha>
 apiVersion: apps/v1
 kind: Deployment
 metadata:

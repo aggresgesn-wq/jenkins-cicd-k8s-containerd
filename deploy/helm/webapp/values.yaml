@@ -1,0 +1,121 @@
+# webapp Helm values
+#
+# 安装示例：
+#   helm upgrade --install webapp deploy/helm/webapp -n webapp --create-namespace \
+#     --set image.tag=$(git rev-parse --short HEAD) \
+#     --set ingress.host=app.example.com
+#
+# 敏感配置（SECRET_KEY / DATABASE_URI / CAPTCHA_SECRET_KEY）不放在 values 中，
+# 由预先创建的 Secret（默认 webapp-secret）注入。
+
+replicaCount: 2
+
+image:
+  # 部署前替换为你的镜像仓库地址（命名空间用你自己的）
+  repository: crpi-m67ogm8wgcr0rh38.cn-hangzhou.personal.cr.aliyuncs.com/REPLACE_ME/webapp
+  # 留空则使用 Chart.appVersion；CI 发布时覆盖为 git short sha
+  tag: ""
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+nameOverride: ""
+# 固定为 webapp，保证 `kubectl set image deployment/webapp` 与 Jenkinsfile 中的名称一致
+fullnameOverride: "webapp"
+
+serviceAccount:
+  create: true
+  name: ""
+  automount: false
+
+podAnnotations: {}
+podLabels: {}
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 10001
+  runAsGroup: 10001
+  fsGroup: 10001
+  fsGroupChangePolicy: OnRootMismatch
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 10001
+  runAsGroup: 10001
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop: ["ALL"]
+  seccompProfile:
+    type: RuntimeDefault
+
+service:
+  type: ClusterIP
+  port: 80
+  targetPort: 5000
+
+ingress:
+  enabled: true
+  className: nginx
+  host: webapp.example.com
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: "10m"
+  tls:
+    enabled: true
+    secretName: webapp-tls
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 256Mi
+  limits:
+    cpu: 500m
+    memory: 768Mi
+
+# 非敏感环境变量（写入 ConfigMap）
+config:
+  FLASK_CONFIG: production
+  LOG_LEVEL: INFO
+  SESSION_LIFETIME_SECONDS: "28800"
+  # 启用 TLS 后设为 "true"
+  SESSION_COOKIE_SECURE: "false"
+  MAX_CONTENT_LENGTH: "5242880"
+  GUNICORN_WORKERS: "4"
+
+# 已有 Secret 名称（需包含 SECRET_KEY / DATABASE_URI / CAPTCHA_SECRET_KEY）
+existingSecret: webapp-secret
+
+persistence:
+  enabled: true
+  accessModes:
+    - ReadWriteMany
+  size: 5Gi
+  # storageClassName: ""
+  mountPath: /app/uploads
+
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 6
+  targetCPUUtilizationPercentage: 70
+  targetMemoryUtilizationPercentage: 80
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+
+networkPolicy:
+  enabled: true
+  ingressNamespace: ingress-nginx
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+topologySpreadConstraints:
+  - maxSkew: 1
+    topologyKey: kubernetes.io/hostname
+    whenUnsatisfiable: ScheduleAnyway
+    labelSelector:
+      matchLabels:
+        app.kubernetes.io/name: webapp

@@ -1,0 +1,81 @@
+# MySQL 定时备份与保留策略（示例）。
+#
+# 前置条件：
+#   1. 已按 mysql.yaml 部署 MySQL，且存在 mysql-secret；
+#   2. 集群有可用的 StorageClass（RWO 即可）。
+#
+# 备份文件写入 PVC `/backup`，文件名包含时间戳；Job 结束前删除 7 天前的备份。
+# 恢复演练见 docs/DEPLOYMENT.md 的“备份与恢复”一节。
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: mysql-backup
+  namespace: webapp
+  labels:
+    app: mysql-backup
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 20Gi
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: mysql-backup
+  namespace: webapp
+  labels:
+    app: mysql-backup
+spec:
+  schedule: "30 3 * * *"          # 每天 03:30
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      template:
+        metadata:
+          labels:
+            app: mysql-backup
+        spec:
+          restartPolicy: Never
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 999
+            fsGroup: 999
+          containers:
+            - name: mysqldump
+              image: swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/mysql:8.0
+              env:
+                - name: MYSQL_ROOT_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: mysql-secret
+                      key: MYSQL_ROOT_PASSWORD
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  set -e
+                  ts=$(date +%Y%m%d-%H%M%S)
+                  file="/backup/authbase-${ts}.sql.gz"
+                  echo "开始备份到 ${file}"
+                  mysqldump -h mysql -uroot -p"${MYSQL_ROOT_PASSWORD}" \
+                    --single-transaction --routines --triggers --events authbase | gzip > "${file}"
+                  echo "备份完成：$(du -h "${file}" | cut -f1)"
+                  find /backup -name 'authbase-*.sql.gz' -mtime +7 -print -delete
+              resources:
+                requests:
+                  cpu: "100m"
+                  memory: "128Mi"
+                limits:
+                  cpu: "500m"
+                  memory: "512Mi"
+              volumeMounts:
+                - name: backup
+                  mountPath: /backup
+          volumes:
+            - name: backup
+              persistentVolumeClaim:
+                claimName: mysql-backup

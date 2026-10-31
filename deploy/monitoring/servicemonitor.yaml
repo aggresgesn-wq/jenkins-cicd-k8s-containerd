@@ -1,0 +1,21 @@
+# Prometheus Operator 的 ServiceMonitor（可选，需要 CRD）。
+# 若集群没有 Prometheus Operator，请忽略本文件，改用 prometheus-config.yaml 中的静态 job。
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: webapp
+  namespace: webapp
+  labels:
+    release: prometheus   # 与 Prometheus 的 serviceMonitorSelector 保持一致
+spec:
+  namespaceSelector:
+    matchNames:
+      - webapp
+  selector:
+    matchLabels:
+      app: webapp
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 15s
+      scrapeTimeout: 10s

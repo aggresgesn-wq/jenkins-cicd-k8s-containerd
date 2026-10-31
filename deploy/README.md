@@ -29,7 +29,7 @@ deploy/
 - 集群有默认 StorageClass，且支持 `ReadWriteMany`（NFS / CephFS / NAS 等）；
   只有 `ReadWriteOnce` 存储时请看 [存储说明](#存储说明)；
 - 已构建并推送镜像，地址形如
-  `crpi-m67ogm8wgcr0rh38.cn-hangzhou.personal.cr.aliyuncs.com/tanchenrui/webapp:<git-short-sha>`；
+  `crpi-m67ogm8wgcr0rh38.cn-hangzhou.personal.cr.aliyuncs.com/<acr-namespace>/webapp:<git-short-sha>`；
 - 本地具备 `kubectl`，可选安装 `kustomize`。
 
 ## 1. 创建命名空间
@@ -82,7 +82,7 @@ kubectl -n webapp create secret generic webapp-secret \
 先准备本次发布的镜像地址，然后执行：
 
 ```bash
-export IMAGE=crpi-m67ogm8wgcr0rh38.cn-hangzhou.personal.cr.aliyuncs.com/tanchenrui/webapp:<git-short-sha>
+export IMAGE=crpi-m67ogm8wgcr0rh38.cn-hangzhou.personal.cr.aliyuncs.com/<acr-namespace>/webapp:<git-short-sha>
 
 kubectl apply -k deploy/k8s
 kubectl -n webapp set image deployment/webapp webapp="$IMAGE"
