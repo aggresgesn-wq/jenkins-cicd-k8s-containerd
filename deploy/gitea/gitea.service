@@ -1,0 +1,32 @@
+[Unit]
+Description=Gitea (Git with a cup of tea)
+Documentation=https://docs.gitea.com/
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=git
+Group=git
+WorkingDirectory=/var/lib/gitea
+RuntimeDirectory=gitea
+Environment=USER=git HOME=/home/git GITEA_WORK_DIR=/var/lib/gitea
+ExecStart=/usr/local/bin/gitea web --config /etc/gitea/app.ini
+ExecReload=/bin/kill -HUP $MAINPID
+Restart=always
+RestartSec=2s
+
+# 加固：以最小权限运行（内置 SSH 监听 2222 不需要 root）
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/gitea /etc/gitea
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+
+[Install]
+WantedBy=multi-user.target
