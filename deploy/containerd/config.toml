@@ -1,0 +1,37 @@
+version = 2
+
+# containerd 数据与运行状态目录
+root = "/var/lib/containerd"
+state = "/run/containerd"
+oom_score = 0
+
+[grpc]
+  address = "/run/containerd/containerd.sock"
+  max_recv_message_size = 16777216
+  max_send_message_size = 16777216
+
+[debug]
+  level = "info"
+
+[plugins."io.containerd.grpc.v1.cri"]
+  # pause 镜像走国内可达的同步地址（与集群节点网络匹配）
+  sandbox_image = "swr.cn-north-4.myhuaweicloud.com/ddn-k8s/registry.k8s.io/pause:3.9"
+  max_container_log_line_size = 16384
+  enable_unprivileged_ports = true
+  enable_unprivileged_icmp = true
+
+  [plugins."io.containerd.grpc.v1.cri".containerd]
+    snapshotter = "overlayfs"
+    default_runtime_name = "runc"
+    discard_unpacked_layers = true
+
+    [plugins."io.containerd.grpc.v1.cri".containerd.runtimes.runc]
+      runtime_type = "io.containerd.runc.v2"
+      base_runtime_spec = ""
+      [plugins."io.containerd.grpc.v1.cri".containerd.runtimes.runc.options]
+        # 必须与 kubelet 的 cgroupDriver=systemd 一致
+        SystemdCgroup = true
+
+  [plugins."io.containerd.grpc.v1.cri".registry]
+    # 私有仓库认证与镜像加速放在 /etc/containerd/certs.d/<registry>/hosts.toml
+    config_path = "/etc/containerd/certs.d"
