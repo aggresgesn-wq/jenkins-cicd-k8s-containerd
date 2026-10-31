@@ -2,6 +2,8 @@
 
 本目录提供 Jenkins Controller 的 Helm values 与落地说明，配合 `webapp/Jenkinsfile` 与 `deploy/k8s/jenkins-rbac.yaml` 使用。
 
+> 界面截图与逐项配置对照见 [docs/JENKINS-UI.md](../../docs/JENKINS-UI.md)（登录、新建流水线、SCM 配置、插件管理、历史构建对比）。
+
 ## 1. 安装方式
 
 ### 方式 A：Helm（推荐，K8s 内）
