@@ -1,0 +1,31 @@
+# Prometheus 采集配置与告警规则（示例）
+#
+# 应用已在 /metrics 暴露以下指标：
+#   webapp_http_requests_total{method,endpoint,status}
+#   webapp_http_request_duration_seconds{method,endpoint}
+#   webapp_login_failures_total
+#   webapp_login_locked_total
+#
+# 若使用 Prometheus Operator，可用 ServiceMonitor 自动发现（见 servicemonitor.yaml）；
+# 否则在 prometheus.yml 中按下面的 job 手工抓取。
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: webapp-scrape-example
+  namespace: webapp
+data:
+  prometheus-job.yml: |
+    - job_name: webapp
+      metrics_path: /metrics
+      scrape_interval: 15s
+      kubernetes_sd_configs:
+        - role: pod
+          namespaces:
+            names: ["webapp"]
+      relabel_configs:
+        - source_labels: [__meta_kubernetes_pod_label_app]
+          regex: webapp
+          action: keep
+        - source_labels: [__meta_kubernetes_pod_container_port_number]
+          regex: "5000"
+          action: keep

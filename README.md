@@ -1,6 +1,8 @@
 # jenkins-gitea-k8s-containerd
 
-面向 Kubernetes 的 CI/CD 示例仓库（仓库名保留历史命名）：代码托管在 GitHub，Gitea 可作为自建替代方案；Jenkins 在集群内动态创建构建 Pod，使用 kaniko 构建镜像，发布到 containerd 运行时集群。仓库内置一个可运行的 Flask + Vue 后台权限系统，用来演示从提交、测试、扫描、构建、推送到测试/生产发布与回滚的完整链路。
+> 仓库名中的 `gitea` 属于历史命名。当前代码、流水线、Webhook 与提交状态回写**统一使用 GitHub**，文档不再以 Gitea 为前提。
+
+面向 Kubernetes 的 CI/CD 示例仓库：代码托管在 GitHub，Jenkins 在集群内动态创建构建 Pod，使用 kaniko 构建镜像，发布到 containerd 运行时集群。仓库内置一个可运行的 Flask + Vue 后台权限系统，用来演示从提交、测试、扫描、构建、推送到测试/生产发布与回滚的完整链路。
 
 ![系统架构](docs/images/architecture.png)
 
@@ -16,7 +18,7 @@
 
 | 维度 | 说明 |
 | --- | --- |
-| 目标 | 一套可落地、可照着复现的 Jenkins + GitHub（Gitea 可替代）+ K8s CI/CD 参考实现 |
+| 目标 | 一套可落地、可照着复现的 Jenkins + GitHub + K8s CI/CD 参考实现 |
 | 示例应用 | Flask 2.2 + Vue 2 后台权限系统，RBAC、验证码、操作日志、健康检查 |
 | 构建 | Jenkins Pipeline + kaniko，不依赖 Docker daemon、privileged 容器或宿主机 containerd socket |
 | 部署 | `deploy/k8s` 清单，namespace 为 `webapp` |
@@ -40,16 +42,19 @@ GitHub ──webhook──> Jenkins ──kaniko──> 镜像仓库（ACR）
 ├── CONTRIBUTING.md
 ├── docs/
 │   ├── ARCHITECTURE.md        # 组件、请求链路、认证时序、数据模型、CI/CD
-│   ├── DEPLOYMENT.md          # 环境准备、Secret、数据库、构建、部署、排障
+│   ├── DEPLOYMENT.md          # 环境准备、Secret、数据库、构建、部署、回滚、排障
 │   └── images/architecture.png # 系统架构图
 ├── deploy/
-│   └── k8s/                   # namespace webapp：Deployment/Service/Ingress/Secret/
-│                              # ConfigMap/NetworkPolicy/PDB/PVC
+│   ├── k8s/                   # 原生清单：Deployment/Service/Ingress/HPA/PDB/PVC/NetworkPolicy/MySQL/备份
+│   ├── helm/webapp/           # 同一套资源的 Helm Chart（多环境发布）
+│   ├── jenkins/               # Jenkins Helm values 与安装/插件/备份说明
+│   └── monitoring/            # Prometheus 抓取配置、告警规则、Grafana 仪表盘
 └── webapp/
-    ├── app/                   # Flask 应用：models/routes/templates
-    ├── ui/                    # Vue 2 + Element UI 前端
+    ├── app/                   # Flask：models/routes/templates/security/metrics
+    ├── ui/                    # Vue 2.7 + Element UI 前端（含 package-lock.json）
     ├── docker/                # mirror.py（国内镜像地址查询工具）
-    ├── tests/                 # 后端测试
+    ├── scripts/               # reset_password.py、check_default_passwords.py
+    ├── tests/                 # 后端测试（pytest）
     ├── db.sql                 # 初始化表结构与种子数据
     ├── dockerfile             # 多阶段构建：Node 构建前端 + Python 运行后端
     ├── Jenkinsfile            # 流水线定义
@@ -63,9 +68,9 @@ GitHub ──webhook──> Jenkins ──kaniko──> 镜像仓库（ACR）
 | 层 | 技术 |
 | --- | --- |
 | 后端 | Flask 2.2、Flask-Login、Flask-SQLAlchemy、Flask-Simple-Captcha、MySQL 8 |
-| 前端 | Vue 2、Element UI、Vuex、Vue Router、Axios |
-| 运行 | gunicorn（`wsgi.py:app`），容器端口 5000 |
-| CI/CD | Jenkins、kaniko、GitHub（Gitea 可替代）、Kubernetes、containerd |
+| 前端 | Vue 2.7、Element UI、Vuex、Vue Router、Axios 1.x |
+| 运行 | gunicorn（`wsgi.py:app`），容器端口 5000，`/metrics` 暴露 Prometheus 指标 |
+| 交付 | Jenkins + kaniko、GitHub（Webhook + Commit Status）、Kubernetes + containerd、Helm/Kustomize |
 
 ## 快速开始
 
@@ -95,7 +100,15 @@ npm install --registry=https://registry.npmmirror.com
 npm run dev
 ```
 
-浏览器访问 <http://localhost>。开发服务器默认监听 80 端口，并将 API 请求代理到 `127.0.0.1:5000`。默认管理员为 `admin`，初始密码由 `db.sql` 的种子数据决定，首次登录后请立即修改。
+浏览器访问 <http://localhost>。**种子数据不包含可用密码**（`db.sql` 中 `admin` 的密码哈希已置为无效值），首次启动前必须生成管理员密码：
+
+```powershell
+# 目录：E:\CICD\webapp（PowerShell）
+python scripts/reset_password.py --username admin
+# 输出示例：已重置用户 admin 的密码：Xk9#mP2vQ7...
+```
+
+开发服务器默认监听 80 端口，并将 API 请求代理到 `127.0.0.1:5000`；用上一步生成的密码登录，并立即在“个人中心”改密。存量环境可用 `python scripts/check_default_passwords.py` 自检是否仍存在弱口令。
 
 ### 路径二：Docker 构建并运行
 
@@ -108,6 +121,11 @@ docker run --rm -p 5000:5000 `
   -e DATABASE_URI="mysql+mysqlconnector://webapp:REPLACE_ME@host.docker.internal:3306/authbase?charset=utf8mb4" `
   -e CAPTCHA_SECRET_KEY="replace-with-random-32-bytes" `
   webapp:local
+
+# 首次部署：在容器内生成管理员密码（或对已有数据库执行）
+docker run --rm -e DATABASE_URI="mysql+mysqlconnector://webapp:REPLACE_ME@host.docker.internal:3306/authbase?charset=utf8mb4" `
+  webapp:local python scripts/reset_password.py --username admin
+
 curl.exe -fsS http://127.0.0.1:5000/health/live
 ```
 
@@ -120,9 +138,22 @@ curl.exe -fsS http://127.0.0.1:5000/health/live
 kubectl apply -f deploy/k8s/
 kubectl -n webapp rollout status deployment/webapp --timeout=180s
 kubectl -n webapp port-forward svc/webapp 8080:80
+
+# 首次初始化管理员密码（种子数据不含可用密码）
+kubectl -n webapp exec deploy/webapp -- python scripts/reset_password.py --username admin
 ```
 
 浏览器访问 <http://localhost:8080>；生产环境通过 Ingress 域名访问。
+
+同一套资源也提供了 Helm Chart，多环境发布时更合适：
+
+```powershell
+# 目录：E:\CICD（PowerShell）
+helm upgrade --install webapp deploy/helm/webapp -n webapp --create-namespace `
+  --set image.tag="$(git rev-parse --short HEAD)" --set ingress.host="app.example.com"
+```
+
+监控与告警见 [deploy/monitoring/README.md](deploy/monitoring/README.md)，Jenkins 安装与配置见 [deploy/jenkins/README.md](deploy/jenkins/README.md)。
 
 ## 镜像加速说明
 
@@ -155,8 +186,9 @@ python docker/mirror.py ghcr.io/containerd/nerdctl:latest --platform linux/arm64
 - **CSRF**：登录成功后下发 `XSRF-TOKEN` Cookie，前端所有写请求携带 `X-XSRF-TOKEN` 头，服务端做双提交 Cookie 校验。
 - **授权**：RBAC（用户-角色-资源），角色 `ROLEKEY` 为 `superadmin` / `admin` / `readonly`，接口通过 `@permission('system:user:list')` 等权限码校验；未登录返回 HTTP 401，无权限返回 HTTP 403。
 - **密钥**：`SECRET_KEY`、`DATABASE_URI`、`CAPTCHA_SECRET_KEY` 等只通过环境变量注入，生产使用 K8s Secret 与 Jenkins Credentials，禁止入库。
+- **默认口令**：`db.sql` 种子账号不含可用密码，首次启动前必须运行 `scripts/reset_password.py`；`scripts/check_default_passwords.py` 可巡检存量环境。
 - **容器**：非 root 运行、只读根文件系统、无 privileged、不挂载宿主机 containerd socket。
-- **其他**：登录限流与锁定、验证码、上传类型/大小校验、依赖与镜像安全扫描。
+- **其他**：登录限流与锁定、验证码、上传类型/大小校验、依赖与镜像安全扫描、审计日志脱敏（密码/Token 不落库）。
 
 完整控制清单与上线检查表见 [SECURITY.md](SECURITY.md)。
 
@@ -169,18 +201,22 @@ python docker/mirror.py ghcr.io/containerd/nerdctl:latest --platform linux/arm64
 | [SECURITY.md](SECURITY.md) | 漏洞上报、密钥管理、安全控制清单、部署检查清单 |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | 分支与提交规范、代码风格、测试要求、PR 检查清单 |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | 组件图、请求链路、认证时序、数据模型、CI/CD 流程 |
-| [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) | 环境准备、Secret、数据库、构建、K8s 部署、Jenkins/GitHub 接入、排障 |
+| [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) | 环境准备、Secret、数据库、构建、K8s/Helm 部署、Jenkins/GitHub 接入、备份恢复、排障 |
+| [deploy/jenkins/README.md](deploy/jenkins/README.md) | Jenkins 安装（Helm/Docker/包管理）、插件源、K8s Cloud、凭据、备份升级 |
+| [deploy/monitoring/README.md](deploy/monitoring/README.md) | Prometheus 抓取、告警规则、Grafana 仪表盘、日志与审计脱敏 |
+| [deploy/helm/webapp/README.md](deploy/helm/webapp/README.md) | Helm Chart 参数、安装升级与回滚 |
 
 ## 许可证与来源声明
 
 - `webapp/` 基于上游 **AuthBase** 项目（<https://gitee.com/zhujf21st/authbase>）二次开发，沿用其 **Apache License 2.0**，许可证全文见 [webapp/LICENSE](webapp/LICENSE)。
-- Jenkins、GitHub（Gitea 可作为自建替代）、Kubernetes、kaniko、渡渡鸟镜像同步站等第三方组件与镜像分别遵循其各自许可证，使用前请自行确认。
+- Jenkins、GitHub、Kubernetes、kaniko、渡渡鸟镜像同步站等第三方组件与镜像分别遵循其各自许可证，使用前请自行确认。
 - 本仓库的 CI/CD 配置与文档为示例性质，不附带任何形式的担保；用于生产前请结合组织安全规范进行评估。
 
 ## Roadmap
 
 以下事项尚未完成，欢迎通过 Issue / PR 参与：
 
-- [ ] **前端框架升级**：Vue 2 已进入 EOL，计划迁移到 Vue 3 + Element Plus（或同类受维护组件库）。
+- [ ] **前端框架升级**：Vue 2 已进入 EOL，当前停留在 2.7.16（2.x 最后一个维护版本），计划迁移到 Vue 3 + Vite + Element Plus。
 - [ ] **数据库迁移**：引入 Flask-Migrate / Alembic，取代手工导入 `db.sql` 的初始化方式，并纳入 CI 校验。
-- [ ] **可观测性**：增加 Prometheus 指标端点与结构化日志（JSON），完善告警与请求追踪。
+- [ ] **可观测性增强**：已提供 `/metrics`、告警规则与 Grafana 面板；后续补充 OpenTelemetry 链路追踪与日志集中化（Loki/ELK）。
+- [ ] **供应链安全**：镜像 SBOM、签名（cosign）与部署准入校验。

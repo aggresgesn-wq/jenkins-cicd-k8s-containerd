@@ -1,0 +1,73 @@
+# Prometheus 告警规则（需要 Prometheus Operator 的 PrometheusRule CRD）。
+# 未使用 Operator 时，可把 spec.groups 内容合并到 prometheus 的 rule_files。
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: webapp-alerts
+  namespace: webapp
+  labels:
+    release: prometheus   # 按实际 Prometheus 的 ruleSelector 修改
+spec:
+  groups:
+    - name: webapp.http
+      rules:
+        - alert: WebappHighErrorRate
+          expr: |
+            sum(rate(webapp_http_requests_total{status=~"5.."}[5m]))
+              / sum(rate(webapp_http_requests_total[5m])) > 0.05
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "webapp 5xx 比例超过 5%"
+            description: "最近 10 分钟 5xx 占比 {{ $value | humanizePercentage }}，检查应用日志与依赖状态。"
+
+        - alert: WebappHighLatency
+          expr: |
+            histogram_quantile(0.95,
+              sum(rate(webapp_http_request_duration_seconds_bucket[5m])) by (le)
+            ) > 1
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "webapp P95 延迟超过 1s"
+            description: "当前 P95 为 {{ $value }}s，检查数据库慢查询与下游依赖。"
+
+        - alert: WebappLoginFailureSpike
+          expr: increase(webapp_login_failures_total[5m]) > 50
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "登录失败次数异常升高"
+            description: "5 分钟内登录失败 {{ $value }} 次，可能存在撞库或前端配置错误。"
+
+        - alert: WebappLoginLockout
+          expr: increase(webapp_login_locked_total[10m]) > 3
+          for: 5m
+          labels:
+            severity: info
+          annotations:
+            summary: "出现账号锁定"
+            description: "10 分钟内 {{ $value }} 次因失败次数过多触发锁定，确认是否为攻击。"
+
+    - name: webapp.workload
+      rules:
+        - alert: WebappPodRestarting
+          expr: increase(kube_pod_container_status_restarts_total{namespace="webapp",container="webapp"}[15m]) > 2
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "webapp Pod 频繁重启"
+            description: "15 分钟内重启 {{ $value }} 次，检查 liveness 探针、OOMKilled 与启动日志。"
+
+        - alert: WebappHPAMaxedOut
+          expr: kube_horizontalpodautoscaler_status_current_replicas{namespace="webapp"} >= kube_horizontalpodautoscaler_spec_max_replicas{namespace="webapp"}
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: "HPA 已达最大副本数"
+            description: "持续 15 分钟处于上限，考虑扩容节点或调整 maxReplicas。"

@@ -88,7 +88,7 @@ mysql -h "$DB_HOST" -u "$DB_ADMIN" -p authbase < webapp/db.sql
 ## 4. 构建镜像
 ```powershell
 # 目录：E:\CICD（PowerShell；构建上下文为 webapp，COPY 路径相对该目录）
-$env:ACR_REGISTRY = "crpi-m67ogm8wgcr0rh38.cn-hangzhou.personal.cr.aliyuncs.com"; $env:ACR_NAMESPACE = "tanchenrui"; $env:IMAGE_TAG = "local"
+$env:ACR_REGISTRY = "crpi-m67ogm8wgcr0rh38.cn-hangzhou.personal.cr.aliyuncs.com"; $env:ACR_NAMESPACE = "<acr-namespace>"; $env:IMAGE_TAG = "local"
 docker build -f webapp/dockerfile `
   --build-arg UI_IMAGE="swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/node:18" `
   --build-arg BASE_IMAGE="swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/python:3.11" `
@@ -128,6 +128,22 @@ kubectl -n webapp get pods,svc,ingress
 - 在 Ingress 中配置域名与 TLS Secret `webapp-tls`，并把 DNS 指向 Ingress Controller。
 - 如使用 Helm/GitOps，可用 `helm upgrade` 替代 `kubectl apply`；首次部署若因依赖顺序失败，确认 namespace、Secret、ConfigMap、PVC 已存在后重新 `kubectl apply -f deploy/k8s/`。
 
+### 使用 Helm 部署（可选）
+
+`deploy/helm/webapp` 与 `deploy/k8s` 管理同一批资源，二选一：
+
+```powershell
+# 目录：E:\CICD（PowerShell）
+helm upgrade --install webapp deploy/helm/webapp -n webapp --create-namespace `
+  --set image.tag="$(git rev-parse --short HEAD)" `
+  --set ingress.host="app.example.com"
+kubectl -n webapp rollout status deployment/webapp --timeout=180s
+helm history webapp -n webapp
+helm rollback webapp 1 -n webapp
+```
+
+`fullnameOverride` 固定为 `webapp`，因此 `kubectl set image deployment/webapp` 与 Helm 发布可以混用。
+
 ## 6. 健康检查与回滚
 ```powershell
 # 目录：E:\CICD（PowerShell，单独终端保持运行）
@@ -153,39 +169,114 @@ kubectl -n webapp rollout undo deployment/webapp --to-revision=2
 
 ## 7. Jenkins 与 GitHub 接入
 
-### Jenkins 插件与云配置
+### 7.1 Jenkins 插件与云配置
 
-安装 **Kubernetes**、**Credentials**、**Credentials Binding**、**Pipeline**、**Git** 插件；GitHub 触发可使用 **GitHub** 插件或 Generic Webhook Trigger。
+安装方式（Helm / Docker / 包管理）、插件源加速、K8s Cloud 配置、凭据与备份恢复，见 [deploy/jenkins/README.md](../deploy/jenkins/README.md)。
+
+安装 **Kubernetes**、**Credentials**、**Credentials Binding**、**Pipeline**、**Git**、**GitHub** 插件。
 
 在 *Manage Jenkins → Clouds* 新增 Kubernetes Cloud：
 
 - Kubernetes URL 与 Namespace：集群内 `https://kubernetes.default.svc`，Namespace 为构建 Pod 所在命名空间（示例 `jenkins`）。
 - Credentials：有权创建 Pod 的 ServiceAccount 或 kubeconfig 凭据。
-- Jenkins URL 与 Pod Template：`https://jenkins.example.com` 供 JNLP 回连；容器包含 Python 与 kaniko，不要 privileged、不要挂载宿主机 containerd socket。
+- Jenkins URL 与 Pod Template：`https://jenkins.example.com` 供 JNLP 回连；容器包含 Python、Node、kaniko、kubectl，不要 privileged、不要挂载宿主机 containerd socket。
 
-### 凭据
+### 7.2 凭据
 
 在 *Manage Jenkins → Credentials* 创建：
 
 | ID | 类型 | 用途 |
 | --- | --- | --- |
 | `acr-credentials` | Username with password | 推送/拉取 ACR 镜像 |
-| `github-token` | Secret text | GitHub API / Webhook 校验 |
-| `kubeconfig` | Secret file | 集群外部署；集群内可改用 ServiceAccount |
+| `github-token` | Secret text | 回写 GitHub Commit Status（`repo:status` 权限） |
+| `github-webhook-secret` | Secret text | 校验 GitHub Webhook 签名（与仓库 Webhook Secret 一致） |
+| `kubeconfig` | Secret file | 集群外部署；集群内改用 ServiceAccount（见 `deploy/k8s/jenkins-rbac.yaml`） |
 
-`ACR_REGISTRY`、`ACR_NAMESPACE` 与 Jenkinsfile 中的环境变量保持一致；凭据 ID 如有调整，同步修改 Jenkinsfile。
+凭据 ID 已被 `webapp/Jenkinsfile` 引用，改名时需同步修改。镜像仓库命名空间通过 Jenkins 全局环境变量 `ACR_NAMESPACE` 提供（未设置时回退为 `your-namespace`），不要把个人账号写进 Jenkinsfile。
 
-### Gitea Webhook
+### 7.3 创建 GitHub Token
 
-1. 进入 Gitea 仓库 → *Settings → Webhooks → Add Webhook → Gitea*。
-2. Target URL 填 Jenkins 的 Gitea 端点，例如 `https://jenkins.example.com/gitea-webhook/post`；使用 Generic Webhook Trigger 时填 `https://jenkins.example.com/generic-webhook-trigger/invoke?token=<token>`。
-3. Secret 填与 Jenkins 凭据一致的随机值，不要复用应用 `SECRET_KEY`。
-4. 勾选 **Push** 与 **Pull Request** 事件，Content Type 选 `application/json`；保存后点击 *Test Delivery*，确认最近一次返回 2xx，再到 Jenkins 查看构建是否被触发。
-5. Jenkins Job 使用 *Pipeline script from SCM*，Script Path 指向 `webapp/Jenkinsfile`，分支限制为 `main`。
+1. GitHub → *Settings → Developer settings → Personal access tokens*。
+2. **Fine-grained token**：Repository access 选择该仓库，权限给 `Commit statuses: Read and write`、`Contents: Read-only`；若用经典 Token，勾选 `repo:status`（私有仓库还需 `repo`）。
+3. 将 Token 保存为 Jenkins 的 `github-token`（Secret text），不要写进仓库或 Jenkinsfile。
 
-生产阶段建议配置 `input` 人工批准，并限制审批人；拒绝或超时不得继续部署。
+Token 只用于两件事：回写提交状态、可选地读取仓库元数据；构建本身通过 Jenkins 的 Git 插件拉取代码（HTTPS + 独立凭据或 Deploy Key）。
 
-## 8. 故障排查
+### 7.4 配置 GitHub Webhook
+
+1. 仓库 → *Settings → Webhooks → Add webhook*。
+2. **Payload URL**：`https://jenkins.example.com/github-webhook/`（GitHub 插件端点，末尾斜杠不能省）。
+3. **Content type**：`application/json`。
+4. **Secret**：填与 Jenkins `github-webhook-secret` 一致的随机字符串（`openssl rand -hex 32`）。
+5. **Events**：勾选 *Just the push event*；需要 PR 校验时再勾 *Pull requests*。
+6. 保存后进入 *Recent Deliveries*，确认返回 `200`；再到 Jenkins 查看 Job 是否被触发。
+
+> 若使用 Generic Webhook Trigger，Payload URL 改为 `https://jenkins.example.com/generic-webhook-trigger/invoke?token=<token>`，并在 Job 中配置 token 参数与分支过滤。
+
+### 7.5 提交状态反馈
+
+`webapp/Jenkinsfile` 会在流水线开始、成功、失败时调用 GitHub Status API，把结果写回对应 commit：
+
+```bash
+POST https://api.github.com/repos/aggresgesn-wq/jenkins-gitea-k8s-containerd/statuses/$GIT_COMMIT
+Authorization: token $GITHUB_TOKEN
+{"state":"success|failure|pending","context":"jenkins/ci","target_url":"$BUILD_URL","description":"..."}
+```
+
+配置好 `github-token` 后，Pull Request 页面会显示 `jenkins/ci` 检查项；Token 缺失时流水线只打印告警，不阻塞构建。
+
+### 7.6 Jenkins Job
+
+- 类型：*Pipeline script from SCM*，SCM 选 Git，仓库地址 `https://github.com/aggresgesn-wq/jenkins-gitea-k8s-containerd.git`，分支 `main`。
+- Script Path：`webapp/Jenkinsfile`。
+- 构建触发器：*GitHub hook trigger for GITScm polling*。
+- 生产阶段使用 `input` 人工批准并限制审批人；拒绝或超时不得继续部署。
+
+## 8. 备份与恢复
+
+### 8.1 数据库备份
+
+`deploy/k8s/mysql-backup-cronjob.yaml` 提供每日 `mysqldump` 备份（03:30，保留 7 天）：
+
+```powershell
+# 目录：E:\CICD（PowerShell）
+kubectl apply -f deploy/k8s/mysql.yaml
+kubectl apply -f deploy/k8s/mysql-backup-cronjob.yaml
+kubectl -n webapp get cronjob,pods -l app=mysql-backup
+kubectl -n webapp create job --from=cronjob/mysql-backup backup-manual
+kubectl -n webapp logs job/backup-manual
+```
+
+托管数据库请使用云厂商的自动备份 + 跨可用区副本，并定期做恢复演练。
+
+### 8.2 恢复演练
+
+```bash
+# 在临时命名空间恢复，验证数据完整性后再切流量
+kubectl -n webapp exec -it mysql-0 -- sh -c \
+  'gunzip -c /backup/authbase-<时间戳>.sql.gz | mysql -uroot -p"$MYSQL_ROOT_PASSWORD" authbase'
+```
+
+恢复后重点核对：`SYUSER`、`SYROLE`、`SYRESOURCE` 行数，管理员可登录，`db.sql` 版本与代码一致。
+
+### 8.3 Jenkins 与镜像
+
+- Jenkins `JENKINS_HOME` 包含凭据与密钥，需整体备份（见 [deploy/jenkins/README.md](../deploy/jenkins/README.md)）。
+- 镜像保留策略：ACR 保留最近 30 个 tag，生产使用不可变 tag（git short sha）。
+
+## 9. 监控与告警
+
+应用在 `/metrics` 暴露 Prometheus 指标，配套告警与 Grafana 面板见 [deploy/monitoring/README.md](../deploy/monitoring/README.md)：
+
+```powershell
+# 目录：E:\CICD（PowerShell）
+kubectl apply -f deploy/monitoring/servicemonitor.yaml     # Prometheus Operator
+kubectl apply -f deploy/monitoring/prometheusrule.yaml
+```
+
+关键告警：5xx 比例、P95 延迟、登录失败突增、Pod 重启、HPA 达到上限。日志统一输出到 stdout，设置 `LOG_FORMAT=json` 便于采集；审计日志已对密码/Token 脱敏。
+
+## 10. 故障排查
 
 | 现象 | 常见原因 | 处理 |
 | --- | --- | --- |
@@ -196,5 +287,8 @@ kubectl -n webapp rollout undo deployment/webapp --to-revision=2
 | 探针失败 | `/health/ready` 依赖数据库不可用、端口不是 5000、启动过慢、只读根文件系统导致写失败 | `kubectl describe pod` 看事件；`kubectl logs` 看启动日志；确认 `/tmp` 与上传 PVC 可写 |
 | 镜像拉取失败 | 缺少 `acr-pull` Secret、tag 不存在、SWR/ACR 网络不通 | 检查 `imagePullSecrets`、镜像地址与仓库权限；基础镜像用 `mirror.py` 换国内地址 |
 | 上传返回 413 | `MAX_CONTENT_LENGTH` 或 Ingress `proxy-body-size` 太小 | 同时调整应用环境变量与 Ingress 注解，重启后验证 |
+| Jenkins 插件安装失败 | 默认更新站点在国内不可达 | 换用清华/日本镜像站点（见 deploy/jenkins/README.md 第 2 节）后重试 |
+| 构建报 `command not found` | Jenkins/构建 Pod 的 PATH 不含工具路径 | 在 Pod 模板中直接使用带工具的镜像，或补 `PATH` 环境变量 |
+| GitHub Webhook 不触发 | URL 末尾缺斜杠、Secret 不一致、插件未装 | 在 GitHub *Recent Deliveries* 查看响应码，对照 `github-webhook-secret` |
 
 排障时优先看三处：`kubectl -n webapp describe pod`、`kubectl -n webapp logs deploy/webapp`、Ingress Controller 访问日志。不要在日志中输出 Cookie、密码或完整连接串。

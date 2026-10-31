@@ -1,0 +1,23 @@
+webapp 已部署到命名空间 {{ .Release.Namespace }}。
+
+1) 查看资源
+   kubectl -n {{ .Release.Namespace }} get deploy,svc,ingress,hpa
+   kubectl -n {{ .Release.Namespace }} rollout status deployment/{{ include "webapp.fullname" . }}
+
+2) 本地验证健康检查
+   kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "webapp.fullname" . }} 8080:{{ .Values.service.port }}
+   curl -fsS http://127.0.0.1:8080/health/live
+   curl -fsS http://127.0.0.1:8080/health/ready
+
+3) 首次初始化管理员密码（种子数据不包含可用密码）
+   kubectl -n {{ .Release.Namespace }} exec deploy/{{ include "webapp.fullname" . }} -- \
+     python scripts/reset_password.py --username admin
+
+4) 依赖的 Secret
+   需要提前创建 {{ .Values.existingSecret }}，包含 SECRET_KEY / DATABASE_URI / CAPTCHA_SECRET_KEY：
+   kubectl -n {{ .Release.Namespace }} create secret generic {{ .Values.existingSecret }} \
+     --from-literal=SECRET_KEY="$(openssl rand -hex 32)" \
+     --from-literal=CAPTCHA_SECRET_KEY="$(openssl rand -hex 16)" \
+     --from-literal=DATABASE_URI="mysql+mysqlconnector://user:pass@mysql:3306/authbase?charset=utf8mb4"
+
+默认访问地址：{{ if .Values.ingress.enabled }}https://{{ .Values.ingress.host }}{{ else }}cluster 内部 http://{{ include "webapp.fullname" . }}.{{ .Release.Namespace }}.svc:{{ .Values.service.port }}{{ end }}

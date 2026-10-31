@@ -1,0 +1,97 @@
+# MySQL 8（示例，适用于测试/演示环境；生产建议使用托管数据库或 Operator）。
+#
+# 前置条件：先创建包含数据库口令的 Secret（不要提交真实密码）：
+#   kubectl -n webapp create secret generic mysql-secret \
+#     --from-literal=MYSQL_ROOT_PASSWORD="$(openssl rand -hex 16)" \
+#     --from-literal=MYSQL_PASSWORD="$(openssl rand -hex 16)" \
+#     --from-literal=DATABASE_URI="mysql+mysqlconnector://webapp:<同上口令>@mysql:3306/authbase?charset=utf8mb4"
+#
+# 初始化 SQL 由 db.sql 提供，可先导入后再启动应用；或挂载到 /docker-entrypoint-initdb.d。
+apiVersion: v1
+kind: Service
+metadata:
+  name: mysql
+  namespace: webapp
+  labels:
+    app: mysql
+spec:
+  clusterIP: None  # Headless Service，供 StatefulSet 稳定网络标识使用
+  selector:
+    app: mysql
+  ports:
+    - name: mysql
+      port: 3306
+      targetPort: mysql
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: mysql
+  namespace: webapp
+  labels:
+    app: mysql
+spec:
+  serviceName: mysql
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mysql
+  template:
+    metadata:
+      labels:
+        app: mysql
+    spec:
+      securityContext:
+        fsGroup: 999
+      containers:
+        - name: mysql
+          image: swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/mysql:8.0
+          args:
+            - --character-set-server=utf8mb4
+            - --collation-server=utf8mb4_0900_ai_ci
+          env:
+            - name: MYSQL_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: mysql-secret
+                  key: MYSQL_ROOT_PASSWORD
+            - name: MYSQL_DATABASE
+              value: authbase
+            - name: MYSQL_USER
+              value: webapp
+            - name: MYSQL_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: mysql-secret
+                  key: MYSQL_PASSWORD
+          ports:
+            - name: mysql
+              containerPort: 3306
+          readinessProbe:
+            exec:
+              command: ["sh", "-c", "mysqladmin ping -h 127.0.0.1 -uroot -p\"$MYSQL_ROOT_PASSWORD\" --silent"]
+            initialDelaySeconds: 20
+            periodSeconds: 10
+          livenessProbe:
+            exec:
+              command: ["sh", "-c", "mysqladmin ping -h 127.0.0.1 -uroot -p\"$MYSQL_ROOT_PASSWORD\" --silent"]
+            initialDelaySeconds: 60
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "512Mi"
+            limits:
+              cpu: "1"
+              memory: "1Gi"
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/mysql
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 10Gi
