@@ -1,0 +1,141 @@
+pipeline {
+    agent {
+        kubernetes {
+            yaml """
+apiVersion: v1
+kind: Pod
+spec:
+  nodeSelector:
+    kubernetes.io/hostname: k8s-master
+  # 强制华为云源走 IPv4（Pod 内 DNS 优先返回 IPv6，无 IPv6 路由导致 TLS 握手超时）
+  hostAliases:
+  - ip: "120.46.247.83"
+    hostnames:
+    - swr.cn-north-4.myhuaweicloud.com
+  containers:
+  - name: python
+    image: swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/python:3.11
+    command: ['cat']
+    tty: true
+    resources:
+      limits:
+        cpu: "500m"
+        memory: "512Mi"
+      requests:
+        cpu: "100m"
+        memory: "256Mi"
+  - name: nerdctl
+    image: swr.cn-north-4.myhuaweicloud.com/ddn-k8s/ghcr.io/containerd/nerdctl:latest
+    imagePullPolicy: IfNotPresent
+    command: ['cat']
+    tty: true
+    privileged: true
+    volumeMounts:
+    - mountPath: /run/containerd/containerd.sock
+      name: containerd-sock
+    - mountPath: /run/buildkit
+      name: buildkit-sock
+    resources:
+      limits:
+        cpu: "500m"
+        memory: "512Mi"
+      requests:
+        cpu: "100m"
+        memory: "256Mi"
+  # buildkitd sidecar：nerdctl build 必需（OCI worker 模式，自带快照存储，不依赖宿主机 containerd 的 /var/lib/containerd）
+  - name: buildkitd
+    image: swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/moby/buildkit:v0.31.1
+    imagePullPolicy: IfNotPresent
+    args:
+    - --oci-worker=true
+    - --containerd-worker=false
+    - --oci-worker-net=host
+    securityContext:
+      privileged: true
+    volumeMounts:
+    - mountPath: /run/buildkit
+      name: buildkit-sock
+  # JNLP 代理容器（必须显式定义，镜像用华为云源，避免 Docker Hub 拉取失败）
+  - name: jnlp
+    image: swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/jenkins/inbound-agent:3283.v92c105e0f819-9-jdk17
+    imagePullPolicy: IfNotPresent
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+  volumes:
+  - name: containerd-sock
+    hostPath:
+      path: /run/containerd/containerd.sock
+  - name: buildkit-sock
+    emptyDir: {}
+"""
+        }
+    }
+
+    environment {
+        ACR_REGISTRY = "crpi-m67ogm8wgcr0rh38.cn-hangzhou.personal.cr.aliyuncs.com"
+        ACR_NAMESPACE = "tanchenrui"
+        IMG_NAME = "webapp"
+        IMG_TAG  = sh(script: 'git rev-parse --short HEAD', returnStdout: true).trim()
+        FULL_IMG = "${ACR_REGISTRY}/${ACR_NAMESPACE}/${IMG_NAME}:${IMG_TAG}"
+    }
+
+    stages {
+        stage('1. 拉取Gitea源码') {
+            steps {
+                sh '''
+                    pwd
+                    ls -l
+                '''
+            }
+        }
+
+        stage('2. Python 安装依赖(uv)') {
+            steps {
+                container('python') {
+                    sh '''
+                        pip install uv -i https://pypi.tuna.tsinghua.edu.cn/simple
+                        uv pip install --system -r pyproject.toml --index-url https://pypi.tuna.tsinghua.edu.cn/simple
+                    '''
+                }
+            }
+        }
+
+        stage('3. 构建镜像') {
+            steps {
+                container('nerdctl') {
+                    sh '''
+                        # 等待 buildkitd 就绪
+                        for i in $(seq 1 30); do
+                          [ -S /run/buildkit/buildkitd.sock ] && break
+                          sleep 1
+                        done
+                        [ -S /run/buildkit/buildkitd.sock ] || { echo "buildkitd 未就绪"; exit 1; }
+
+                        export BUILDKIT_HOST=unix:///run/buildkit/buildkitd.sock
+                        nerdctl build -f dockerfile -t ${FULL_IMG} .
+                    '''
+                }
+            }
+        }
+
+        stage('4. K8s一键部署') {
+            steps {
+                echo "后续填入kubectl更新镜像命令"
+            }
+        }
+    }
+
+    post {
+        always {
+            echo "流水线执行结束"
+        }
+        success {
+            echo "✅ 流水线构建推送成功！镜像地址：${FULL_IMG}"
+        }
+        failure {
+            echo "❌ 流水线失败，请查看日志"
+        }
+    }
+}
