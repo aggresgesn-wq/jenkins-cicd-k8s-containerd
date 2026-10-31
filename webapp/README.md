@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 # 基于Flask实现后台权限管理系统
 
 ## Authbase铂金版本
@@ -125,8 +124,3 @@
 ![操作日志](doc/操作日志.png)
 
 ![服务监控](doc/server.png)
-
-=======
-# jenkins-gitea-k8s-containerd
-Deploy containerized Jenkins on K8s, integrate with gitea for CI/CD pipeline
->>>>>>> 901e19cc0e2c0d26b595849fe5232d0d7c13a292
