@@ -6,6 +6,7 @@ from sqlalchemy import desc
 import flask_excel as excel
 from flask_login import login_required
 from .. import permission
+from ..security import transactional
 
 @base.route('/monitor/logininfor/list', methods=['GET'])
 @login_required
@@ -41,6 +42,8 @@ def grid_online():
 
 @base.route('/base/syonline/export', methods=['POST'])
 @login_required
+@permission('monitor:logininfor:export')
+@transactional
 def online_export():
     rows = []
     rows.append(['登录名', 'IP地址', '创建时间', '类别'])

@@ -3,7 +3,12 @@ from datetime import datetime
 
 class OnLine(db.Model):
     __tablename__ = 'SYONLINE'
-    ID = db.Column(db.BigInteger, primary_key=True)
+    # MySQL 上是 BIGINT AUTO_INCREMENT；SQLite（测试环境）不支持 BIGINT 自增，做类型变体
+    ID = db.Column(
+        db.BigInteger().with_variant(db.Integer, "sqlite"),
+        primary_key=True,
+        autoincrement=True,
+    )
     CREATEDATETIME = db.Column(db.DateTime, index=True, default=datetime.now)
     LOGINNAME = db.Column(db.String(100))
     IP = db.Column(db.String(100))

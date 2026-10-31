@@ -11,6 +11,7 @@ from flask import render_template
 from datetime import datetime
 import uuid
 from .. import permission
+from ..security import transactional
 
 @base.route('/system/dept/list', methods=['GET'])
 @login_required
@@ -28,6 +29,7 @@ def syorganization_treeGrid():
 
 @base.route('/system/dept/treeselect', methods=['GET'])
 @login_required
+@permission('system:dept:list')
 def syorganization_tree_select():
     orgs = Organization.query.filter(Organization.SYORGANIZATION_ID == None)
 
@@ -35,6 +37,7 @@ def syorganization_tree_select():
 
 @base.route('/system/dept/list/exclude/<id>', methods=['GET'])
 @login_required
+@permission('system:dept:list')
 def syorganization_dept_list_exclude(id):
     orgs = Organization.query.filter(Organization.ID != id)
 
@@ -54,6 +57,7 @@ def syorganization_getById(id):
 @base.route('/system/dept', methods=['PUT'])
 @login_required
 @permission('system:dept:edit')
+@transactional
 def syorganization_update():
     org = Organization.query.get(request.json['deptId'])
 
@@ -73,6 +77,7 @@ def syorganization_update():
 @base.route('/system/dept', methods=['POST'])
 @login_required
 @permission('system:dept:add')
+@transactional
 def syorganization_save():
     org = Organization()
     org.ID = str(uuid.uuid4())
@@ -94,6 +99,7 @@ def syorganization_save():
 @base.route('/system/dept/<string:id>', methods=['DELETE'])
 @login_required
 @permission('system:dept:remove')
+@transactional
 def sydept_delete(id):
     org = Organization.query.get(id)
     if org:

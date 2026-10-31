@@ -1,108 +1,135 @@
-from flask import Flask, render_template
-from flask_moment import Moment
-from flask_sqlalchemy import SQLAlchemy
-from config import config
-from flask_login import LoginManager
-import flask_excel as excel
+# coding: utf-8
+"""应用工厂与扩展初始化。"""
 
-from flask import json
-from datetime import datetime, date
-
-from flask_login import current_user
-from flask import jsonify
-from functools import wraps
+import json
 import logging
-from logging.handlers import RotatingFileHandler
+import os
+import sys
+from datetime import date, datetime
+
+import flask_excel as excel
+from flask import Flask, jsonify, render_template, request
+from flask_login import LoginManager
+from flask_moment import Moment
 from flask_simple_captcha import CAPTCHA
+from flask_sqlalchemy import SQLAlchemy
 
-CAPTCHA_CONFIG = {
-    'SECRET_CAPTCHA_KEY': '5984d2c2-2721-4f51-85bf-dfcc7aedd03',
-    'CAPTCHA_LENGTH': 4,
-    'CAPTCHA_DIGITS': True,
-    'EXPIRE_SECONDS': 600,
-    'ONLY_UPPERCASE': False,
-}
+from config import Config, config
+from .security import forbidden, has_permission, is_authenticated, json_response
+from .security import permission, transactional, unauthorized
+from .security import init_app as init_security
+from .security import is_api_request, is_public_path
 
-def setup_logger(name):
+loginmanager = LoginManager()
+loginmanager.session_protection = "strong"
+
+moment = Moment()
+db = SQLAlchemy()
+captcha = CAPTCHA(config=Config.CAPTCHA_CONFIG)
+
+
+class JsonFormatter(logging.Formatter):
+    """把日志输出为单行 JSON，便于容器日志采集。"""
+
+    def format(self, record: logging.LogRecord) -> str:
+        payload = {
+            "ts": self.formatTime(record, "%Y-%m-%dT%H:%M:%S%z"),
+            "level": record.levelname,
+            "logger": record.name,
+            "message": record.getMessage(),
+        }
+        if record.exc_info:
+            payload["exc"] = self.formatException(record.exc_info)
+        return json.dumps(payload, ensure_ascii=False)
+
+
+def setup_logger(name: str | None = None) -> logging.Logger:
+    """统一日志：默认输出到 stdout，容器环境下不再写 app.log。"""
     logger = logging.getLogger(name)
-    logger.setLevel(logging.DEBUG)
+    if logger.handlers:
+        return logger
 
-    # Create a rotating file handler
-    file_handler = RotatingFileHandler('app.log', encoding='utf-8', maxBytes=10*1024*1024, backupCount=5)
-    file_handler.setLevel(logging.INFO)
+    handler = logging.StreamHandler(sys.stdout)
+    if os.environ.get("LOG_FORMAT", "text").lower() == "json":
+        handler.setFormatter(JsonFormatter())
+    else:
+        handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s %(message)s"))
 
-    console_handler = logging.StreamHandler()
-    console_handler.setLevel(logging.DEBUG)
-
-    # Create a formatter and set it for the handler
-    formatter = logging.Formatter('%(asctime)s %(levelname)s %(name)s - %(message)s')
-    file_handler.setFormatter(formatter)
-    console_handler.setFormatter(formatter)
-
-    # Add the handler to the logger if it hasn't been added yet
-    if not logger.hasHandlers():
-        logger.addHandler(file_handler)
-        logger.addHandler(console_handler)
-
+    logger.addHandler(handler)
+    logger.setLevel(os.environ.get("LOG_LEVEL", "INFO").upper())
+    logger.propagate = False
     return logger
-
-def permission(permission_id):
-    def need_permission(func):
-        @wraps(func)
-        def inner(*args, **kargs):
-            if not current_user.ID:
-                return jsonify(401, {"msg": "认证失败，无法访问系统资源"})
-            else:
-                resources = []
-                resourceTree = []
-
-                resources += [res for org in current_user.organizations for res in org.resources if org.resources]
-                resources += [res for role in current_user.roles for res in role.resources if role.resources]
-                
-                # remove repeat
-                new_dict = dict()
-                for obj in resources:
-                    if obj.ID not in new_dict:
-                        new_dict[obj.ID] = obj
-
-                for resource in new_dict.values():
-                    resourceTree.append(resource.PERMS)
-                if permission_id in resourceTree:
-                    return func(*args, **kargs)
-                else:
-                    return jsonify({'msg': '当前操作没有权限', 'code': 403})
-        return inner
-    return need_permission
-        
 
 
 JSONEncoder = json.JSONEncoder
 
+
 class CustomJSONEncoder(JSONEncoder):
     def default(self, obj):
         if isinstance(obj, datetime):
-            return obj.strftime('%Y-%m-%d %H:%M:%S')
-        elif isinstance(obj, date):
-            return obj.strftime('%Y-%m-%d')
-        else:
-            return JSONEncoder.default(self, obj)
+            return obj.strftime("%Y-%m-%d %H:%M:%S")
+        if isinstance(obj, date):
+            return obj.strftime("%Y-%m-%d")
+        return JSONEncoder.default(self, obj)
 
-loginmanager = LoginManager()
-loginmanager.session_protection = 'strong'
-#loginmanager.login_view = 'base.login'
 
-moment = Moment()
-db = SQLAlchemy()
-captcha = CAPTCHA(config=CAPTCHA_CONFIG)
+def _register_error_handlers(app: Flask) -> None:
+    @app.errorhandler(400)
+    def bad_request(error):
+        if is_api_request():
+            return json_response("请求参数不合法", 400)
+        return "Bad Request", 400
 
-def create_app(config_name):
+    @app.errorhandler(401)
+    def unauthorized_handler(error):
+        if is_api_request():
+            return json_response("认证失败，无法访问系统资源", 401)
+        return render_template("errors/404.html"), 401
+
+    @app.errorhandler(403)
+    def forbidden_handler(error):
+        if is_api_request():
+            return json_response("当前操作没有权限", 403)
+        return "Forbidden", 403
+
+    @app.errorhandler(404)
+    def page_not_found(error):
+        if is_api_request():
+            return json_response("请求的资源不存在", 404)
+        return render_template("errors/404.html"), 404
+
+    @app.errorhandler(413)
+    def payload_too_large(error):
+        return json_response("上传文件过大", 413)
+
+    @app.errorhandler(415)
+    def unsupported_media_type(error):
+        return json_response("不支持的文件类型", 415)
+
+    @app.errorhandler(500)
+    def internal_error(error):
+        app.logger.exception("未捕获的服务端异常: %s", error)
+        if is_api_request():
+            return json_response("服务器内部错误", 500)
+        return "Internal Server Error", 500
+
+
+def create_app(config_name: str | None = None) -> Flask:
+    config_name = config_name or os.environ.get("FLASK_CONFIG") or "production"
+    if config_name not in config:
+        raise RuntimeError(f"未知的 FLASK_CONFIG: {config_name}")
+
     app = Flask(__name__)
-    #  替换默认的json编码器
-    app.json_encoder = CustomJSONEncoder
     app.config.from_object(config[config_name])
-    app.config['PERMANENT_SESSION_LIFETIME'] = config[config_name].SESSION_TIMEOUT
-    app.config['JSON_AS_ASCII'] = False
     config[config_name].init_app(app)
+
+    app.json_encoder = CustomJSONEncoder
+    app.config.setdefault("JSON_AS_ASCII", False)
+
+    logger = setup_logger("authbase")
+    logger.setLevel(app.config.get("LOG_LEVEL", "INFO"))
+    app.logger.handlers = logger.handlers
+    app.logger.setLevel(logger.level)
 
     moment.init_app(app)
     db.init_app(app)
@@ -110,7 +137,12 @@ def create_app(config_name):
     captcha.init_app(app)
 
     from .base import base as base_blueprint
-    app.register_blueprint(base_blueprint, url_prefix='/prod-api')
-    excel.init_excel(app)
-    return app
 
+    app.register_blueprint(base_blueprint, url_prefix="/prod-api")
+    excel.init_excel(app)
+
+    init_security(app)
+    _register_error_handlers(app)
+
+    logger.info("应用初始化完成 config=%s", config_name)
+    return app

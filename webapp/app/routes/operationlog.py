@@ -7,6 +7,7 @@ from flask_login import login_required
 from .. import permission
 from ..models import OperationLog
 from .. import  db
+from ..security import transactional
 
 @base.route('/monitor/operlog/list', methods=['GET'])
 @login_required
@@ -45,6 +46,7 @@ def grid_operationlog():
 @base.route('/monitor/operlog/export', methods=['POST'])
 @login_required
 @permission('monitor:operlog:export')
+@transactional
 def operationlog_export():
     rows = []
     rows.append(['操作名称', '请求方法', '请求路径', '请求参数', '操作人员', '操作时间'])
@@ -68,6 +70,7 @@ def operationlog_export():
 @base.route('/monitor/operlog/clean', methods=['DELETE'])
 @login_required
 @permission('monitor:operlog:clean')
+@transactional
 def operationlog_clean():
     OperationLog.query.delete()
     return jsonify({'code': 200, 'msg': '操作日志已清空！'})
@@ -75,6 +78,7 @@ def operationlog_clean():
 @base.route('/monitor/operlog/<string:ids>', methods=['DELETE'])
 @login_required
 @permission('monitor:operlog:remove')
+@transactional
 def operationlog_remove(ids):
     idList = ids.split(',')
     for id in idList:

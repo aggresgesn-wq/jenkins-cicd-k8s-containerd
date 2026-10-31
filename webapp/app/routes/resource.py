@@ -14,6 +14,7 @@ from sqlalchemy import desc
 from sqlalchemy import asc
 from flask_login import login_required  
 from .. import permission
+from ..security import transactional
 
 @base.route('/system/menu/list', methods=['GET'])
 @login_required
@@ -47,6 +48,7 @@ def syresource_getById(id):
 @base.route('/system/menu', methods=['PUT'])
 @login_required
 @permission('system:menu:edit')
+@transactional
 def syresource_update():
     res = Resource.query.get(request.json['menuId'])
 
@@ -71,6 +73,7 @@ def syresource_update():
 @base.route('/system/menu', methods=['POST'])
 @login_required
 @permission('system:menu:add')
+@transactional
 def syresource_save():
     res = Resource()
 
@@ -95,6 +98,7 @@ def syresource_save():
 @base.route('/system/menu/<id>', methods=['DELETE'])
 @login_required
 @permission('system:menu:remove')
+@transactional
 def syresource_delete(id):
     res = Resource.query.get(id)
     if res:
@@ -118,4 +122,3 @@ def syresource_role_tree_select(roleId):
     return jsonify({'msg': '操作成功', 'code': 200, \
         "menus": [res.to_tree_select_json() for res in resList], \
         "checkedKeys": [res.ID for res in role.resources]}) 
-

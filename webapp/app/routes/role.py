@@ -13,10 +13,13 @@ from sqlalchemy import asc
 from sqlalchemy import or_
 from flask_login import login_required
 from .. import permission
+from ..security import transactional
 
 
 @base.route('/system/role/authUser/cancelAll', methods=['PUT'])
 @login_required
+@permission('system:role:edit')
+@transactional
 def cancel_all_role():
     roleId = request.args.get('roleId')
     userIds = request.args.get('userIds')
@@ -34,6 +37,8 @@ def cancel_all_role():
 
 @base.route('/system/role/authUser/cancel', methods=['PUT'])
 @login_required
+@permission('system:role:edit')
+@transactional
 def cancel_role():
     roleId = request.json.get('roleId')
     userId = request.json.get('userId')
@@ -91,6 +96,7 @@ def syrole_getById(id):
 @base.route('/system/role', methods=['PUT'])
 @login_required
 @permission('system:role:edit')
+@transactional
 def syrole_update():
     role = Role.query.get(request.json['roleId'])
 
@@ -112,6 +118,7 @@ def syrole_update():
 @base.route('/system/role', methods=['POST'])
 @login_required
 @permission('system:role:add')
+@transactional
 def syrole_save():
     role = Role()
 
@@ -136,6 +143,7 @@ def syrole_save():
 @base.route('/system/role/<string:id>', methods=['DELETE'])
 @login_required
 @permission('system:role:remove')
+@transactional
 def syrole_delete(id):
     role = Role.query.get(id)
     if role:
@@ -145,6 +153,7 @@ def syrole_delete(id):
 
 @base.route('/system/role/authUser/allocatedList', methods=['GET'])
 @login_required
+@permission('system:role:list')
 def allocatedList():
     page = request.args.get('pageNum', 1, type=int)
     rows = request.args.get('pageSize', 10, type=int)
@@ -156,6 +165,7 @@ def allocatedList():
 
 @base.route('/system/role/authUser/unallocatedList', methods=['GET'])
 @login_required
+@permission('system:role:list')
 def unallocatedList():
     page = request.args.get('pageNum', 1, type=int)
     rows = request.args.get('pageNum', 10, type=int)
@@ -168,6 +178,7 @@ def unallocatedList():
 
 @base.route('/system/dept/roleDeptTreeselect/<id>', methods=['GET'])
 @login_required
+@permission('system:role:query')
 def roleDeptTreeselect(id):
     role = Role.query.get(id)
     dept = Organization.query.get('0')
@@ -177,6 +188,8 @@ def roleDeptTreeselect(id):
 
 @base.route('/system/role/dataScope', methods=['PUT'])
 @login_required
+@permission('system:role:edit')
+@transactional
 def syrole_dataScope():
     role = Role.query.get(request.json['roleId'])
 
@@ -191,6 +204,8 @@ def syrole_dataScope():
 
 @base.route('/system/role/authUser/selectAll', methods=['PUT'])
 @login_required
+@permission('system:role:edit')
+@transactional
 def syrole_authUser_selectAll():
     role = Role.query.get(request.args.get('roleId'))
     userIds = request.args.get('userIds')
@@ -206,6 +221,7 @@ def syrole_authUser_selectAll():
 @base.route('/system/role/changeStatus', methods=['PUT'])
 @login_required
 @permission('system:role:edit')
+@transactional
 def syrole_status_update():
     role = Role.query.get(request.json['roleId'])
 

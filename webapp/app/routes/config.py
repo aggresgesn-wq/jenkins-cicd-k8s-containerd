@@ -10,11 +10,25 @@ from .. import  db
 from flask_login import login_required
 import flask_excel as excel
 from .. import permission
+from ..security import PUBLIC_CONFIG_KEYS, forbidden, has_permission, unauthorized
+from ..security import transactional
 
 @base.route('/system/config/configKey/<configKey>', methods=['GET'])
-#@login_required
 def sysconfig_get_value(configKey):
+    """公开配置项允许匿名读取，其余必须登录且具备查询权限。
+
+    登录页只需要 ``sys.account.captchaOnOff`` / ``sys.account.registerUser`` 两个开关，
+    之前该接口可以匿名读取任意配置（可能包含密钥类配置），属于信息泄露。
+    """
+    if configKey not in PUBLIC_CONFIG_KEYS:
+        if not current_user.is_authenticated:
+            return unauthorized()
+        if not has_permission('system:config:query'):
+            return forbidden()
+
     data = Config.query.filter(Config.config_key == configKey).first()
+    if data is None:
+        return jsonify({'code': 404, 'msg': '参数不存在'}), 404
 
     return jsonify({'code': 200, 'msg': data.config_value})
 
@@ -54,6 +68,7 @@ def sysconfig_get_by_id(id):
 @base.route('/system/config', methods=['POST'])
 @login_required
 @permission('system:config:add')
+@transactional
 def sysconfig_add():
     config = Config()
 
@@ -73,6 +88,7 @@ def sysconfig_add():
 @base.route('/system/config', methods=['PUT'])
 @login_required
 @permission('system:config:edit')
+@transactional
 def sysconfig_update():
     config = Config.query.get(request.json['configId'])
 
@@ -92,6 +108,7 @@ def sysconfig_update():
 @base.route('/system/config/<string:ids>', methods=['DELETE'])
 @login_required
 @permission('system:config:remove')
+@transactional
 def syconfig_delete(ids):
     idList = ids.split(',')
     for id in idList:
@@ -104,6 +121,7 @@ def syconfig_delete(ids):
 @base.route('/system/config/export', methods=['POST'])
 @login_required
 @permission('system:config:export')
+@transactional
 def config_export():
     rows = []
     rows.append(['参数主键', '参数名称', '参数键名', '参数键值', '系统内置', '备注', '创建时间'])
