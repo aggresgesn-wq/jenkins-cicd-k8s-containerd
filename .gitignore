@@ -37,3 +37,7 @@ Thumbs.db
 .env
 .env.*
 *.pem
+
+# 临时文件
+.commit-msg*.tmp
+*.tmp
