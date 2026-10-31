@@ -206,6 +206,7 @@ python docker/mirror.py ghcr.io/containerd/nerdctl:latest --platform linux/arm64
 | [deploy/gitea/README.md](deploy/gitea/README.md) | Gitea 在 Linux 上的安装（二进制+systemd / Docker / Helm）、初始化、反代、Jenkins 对接、备份升级 |
 | [docs/IMAGES.md](docs/IMAGES.md) | 镜像清单：流水线、构建、部署与运维组件统一走渡渡鸟镜像站的地址与校验方式 |
 | [docs/BRANCH-PROTECTION.md](docs/BRANCH-PROTECTION.md) | main 分支保护、`jenkins/ci` 必需检查与生产发布限制 |
+| [docs/JENKINS-UI.md](docs/JENKINS-UI.md) | Jenkins 界面速览（登录、新建流水线、SCM 配置、插件管理、改造前后阶段对比） |
 | [deploy/containerd/README.md](deploy/containerd/README.md) | containerd 安装脚本、`config.toml`（SystemdCgroup/CRI）、kubelet cgroup 配置与节点校验 |
 | [deploy/jenkins/jcasc/jenkins.yaml](deploy/jenkins/jcasc/jenkins.yaml) | Jenkins JCasC 示例（Kubernetes Cloud、PATH、location）与 Job DSL |
 | [deploy/monitoring/README.md](deploy/monitoring/README.md) | Prometheus 抓取、告警规则、Grafana 仪表盘、日志与审计脱敏 |
