@@ -90,7 +90,7 @@ controller:
     configScripts:
       welcome: |
         jenkins:
-          systemMessage: "Jenkins for jenkins-github-k8s-containerd（CI/CD 示例）"
+          systemMessage: "Jenkins for jenkins-cicd-k8s-containerd（CI/CD 示例）"
         unclassified:
           location:
             url: "https://jenkins.example.com/"

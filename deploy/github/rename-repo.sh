@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 仓库改名脚本（历史用途：曾把 jenkins-gitea-k8s-containerd 改为 jenkins-github-k8s-containerd）。
+# 仓库改名脚本（历史用途：曾把 jenkins-gitea-k8s-containerd 改为 jenkins-cicd-k8s-containerd）。
 #
 #   REPO=owner/old-name NEW_NAME=new-name ./deploy/github/rename-repo.sh
 #

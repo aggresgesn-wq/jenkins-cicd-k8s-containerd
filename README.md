@@ -1,16 +1,19 @@
-# jenkins-github-k8s-containerd
+# jenkins-cicd-k8s-containerd
 
-> 仓库已由 `jenkins-gitea-k8s-containerd` 重命名为 `jenkins-github-k8s-containerd`（GitHub 会重定向旧地址）。代码托管、Webhook 与提交状态回写均使用 GitHub；如需内网自建代码托管，可按 [deploy/gitea/README.md](deploy/gitea/README.md) 在 Linux 上部署 Gitea 并切换 Webhook。
+> 仓库已由 `jenkins-gitea-k8s-containerd` 重命名为 `jenkins-cicd-k8s-containerd`（GitHub 会重定向旧地址）。代码托管、Webhook 与提交状态回写均使用 GitHub；如需内网自建代码托管，可按 [deploy/gitea/README.md](deploy/gitea/README.md) 在 Linux 上部署 Gitea 并切换 Webhook。
 
 面向 Kubernetes 的 CI/CD 示例仓库：代码托管在 GitHub，Jenkins 在集群内动态创建构建 Pod，使用 kaniko 构建镜像，发布到 containerd 运行时集群。仓库内置一个可运行的 Flask + Vue 后台权限系统，用来演示从提交、测试、扫描、构建、推送到测试/生产发布与回滚的完整链路。
 
-![系统架构](docs/images/architecture.png)
+![系统架构](docs/images/architecture.svg)
 
-> 图中构建阶段以 Rootless BuildKit 表示无特权构建；当前实现使用 kaniko，二者都不使用 privileged 容器、不挂载 containerd.sock。
+> 架构图的可编辑源文件是 `docs/images/architecture.svg`（文本格式，可直接改），历史版本见 `docs/images/legacy/architecture-v1.png`。
 
-图中发布通道以 Helm Upgrade/GitOps 表示；当前示例使用 `deploy/k8s` 清单与 Jenkins 部署阶段实现等价的发布/回滚，可平滑替换为 Helm。
+两点与实现保持一致：
 
-- 仓库地址：<https://github.com/aggresgesn-wq/jenkins-github-k8s-containerd>
+- 镜像构建当前使用 **kaniko**（无特权、不挂载 containerd.sock），图中同时用紫色虚线标出目标形态 Rootless BuildKit；
+- 发布使用 **Kustomize + kubectl**（`kubectl kustomize overlays/... | kubectl apply`），尚未引入 Argo CD/Flux，因此不宣称 GitOps。
+
+- 仓库地址：<https://github.com/aggresgesn-wq/jenkins-cicd-k8s-containerd>
 - 应用目录：[webapp/](webapp)
 - 生产启动方式：gunicorn，入口 `webapp/wsgi.py:app`，容器端口 `5000`
 
@@ -21,7 +24,7 @@
 | 目标 | 一套可落地、可照着复现的 Jenkins + GitHub + K8s CI/CD 参考实现 |
 | 示例应用 | Flask 2.2 + Vue 2 后台权限系统，RBAC、验证码、操作日志、健康检查 |
 | 构建 | Jenkins Pipeline + kaniko，不依赖 Docker daemon、privileged 容器或宿主机 containerd socket |
-| 部署 | `deploy/k8s` 清单，namespace 为 `webapp` |
+| 部署 | `deploy/k8s` 清单与 overlays，namespace 为 `webapp-staging`（测试）/ `webapp`（生产） |
 | 运行时 | containerd + gunicorn，健康检查 `/health/live`、`/health/ready` |
 | 安全基线 | Session + 双提交 Cookie CSRF、RBAC、非 root/只读根文件系统，详见 [SECURITY.md](SECURITY.md) |
 
@@ -43,12 +46,22 @@ GitHub ──webhook──> Jenkins ──kaniko──> 镜像仓库（ACR）
 ├── docs/
 │   ├── ARCHITECTURE.md        # 组件、请求链路、认证时序、数据模型、CI/CD
 │   ├── DEPLOYMENT.md          # 环境准备、Secret、数据库、构建、部署、回滚、排障
-│   └── images/architecture.png # 系统架构图
+│   ├── JENKINS-UI.md          # Jenkins 界面截图与配置对照
+│   ├── IMAGES.md              # 镜像清单（统一走镜像同步站）
+│   ├── BRANCH-PROTECTION.md   # 分支保护与合并门禁
+│   ├── SCOPE.md               # 功能范围与技术债
+│   └── images/
+│       ├── architecture.svg   # 架构图（可编辑源文件）
+│       ├── jenkins/           # Jenkins 界面截图与阶段示意
+│       └── legacy/            # 历史图片
 ├── deploy/
-│   ├── k8s/                   # 原生清单：Deployment/Service/Ingress/HPA/PDB/PVC/NetworkPolicy/MySQL/备份
+│   ├── k8s/                   # 原生清单 + staging/production overlay
 │   ├── helm/webapp/           # 同一套资源的 Helm Chart（多环境发布）
-│   ├── jenkins/               # Jenkins Helm values 与安装/插件/备份说明
-│   └── monitoring/            # Prometheus 抓取配置、告警规则、Grafana 仪表盘
+│   ├── jenkins/               # Jenkins Helm values、JCasC、Job DSL
+│   ├── containerd/            # containerd 安装/配置/校验脚本
+│   ├── gitea/                 # Gitea 在 Linux 上的安装（可选自建）
+│   ├── monitoring/            # Prometheus 抓取配置、告警规则、Grafana 仪表盘
+│   └── github/                # 分支保护与仓库改名脚本
 └── webapp/
     ├── app/                   # Flask：models/routes/templates/security/metrics
     ├── ui/                    # Vue 2.7 + Element UI 前端（含 package-lock.json）

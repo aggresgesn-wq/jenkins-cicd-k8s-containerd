@@ -27,7 +27,7 @@
 
 **请勿通过公开 Issue 披露未修复漏洞。** 使用 GitHub Security Advisory 私密上报：
 
-<https://github.com/aggresgesn-wq/jenkins-github-k8s-containerd/security/advisories/new>
+<https://github.com/aggresgesn-wq/jenkins-cicd-k8s-containerd/security/advisories/new>
 
 报告请尽量包含：
 

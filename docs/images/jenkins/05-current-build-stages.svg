@@ -1,0 +1,53 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="300" viewBox="0 0 1400 300" font-family="Microsoft YaHei, Noto Sans SC, PingFang SC, sans-serif">
+  <rect width="1400" height="300" fill="#ffffff"/>
+  <text x="24" y="36" font-size="19" font-weight="bold" fill="#0f172a">当前流水线阶段（由 webapp/Jenkinsfile 生成，示意非截图）</text>
+  <text x="24" y="58" font-size="12" fill="#64748b">共 11 个 stage；蓝色 = 质量门禁，绿色 = 构建与发布，橙色 = 人工与生产保护</text>
+
+  <g font-size="12" text-anchor="middle">
+    <rect x="24" y="90" width="110" height="58" rx="6" fill="#e0f2fe" stroke="#0284c7"/>
+    <text x="79" y="114" fill="#075985">1 检出</text><text x="79" y="132" fill="#0369a1">GitHub</text>
+
+    <rect x="150" y="90" width="110" height="58" rx="6" fill="#e0f2fe" stroke="#0284c7"/>
+    <text x="205" y="114" fill="#075985">2 后端测试</text><text x="205" y="132" fill="#0369a1">pytest</text>
+
+    <rect x="276" y="90" width="110" height="58" rx="6" fill="#e0f2fe" stroke="#0284c7"/>
+    <text x="331" y="114" fill="#075985">3 前端</text><text x="331" y="132" fill="#0369a1">lint + build</text>
+
+    <rect x="402" y="90" width="120" height="58" rx="6" fill="#e0f2fe" stroke="#0284c7"/>
+    <text x="462" y="114" fill="#075985">4 源码扫描</text><text x="462" y="132" fill="#0369a1">bandit/pip-audit</text>
+
+    <rect x="538" y="90" width="130" height="58" rx="6" fill="#e0f2fe" stroke="#0284c7"/>
+    <text x="603" y="114" fill="#075985">5 清单校验</text><text x="603" y="132" fill="#0369a1">helm/kubeconform</text>
+
+    <rect x="684" y="90" width="110" height="58" rx="6" fill="#dcfce7" stroke="#16a34a"/>
+    <text x="739" y="114" fill="#166534">6 构建推送</text><text x="739" y="132" fill="#15803d">kaniko + digest</text>
+
+    <rect x="810" y="90" width="130" height="58" rx="6" fill="#dcfce7" stroke="#16a34a"/>
+    <text x="875" y="114" fill="#166534">7 镜像扫描</text><text x="875" y="132" fill="#15803d">trivy + syft</text>
+
+    <rect x="956" y="90" width="120" height="58" rx="6" fill="#dcfce7" stroke="#16a34a"/>
+    <text x="1016" y="114" fill="#166534">8 部署 staging</text><text x="1016" y="132" fill="#15803d">kustomize</text>
+
+    <rect x="1092" y="90" width="110" height="58" rx="6" fill="#dcfce7" stroke="#16a34a"/>
+    <text x="1147" y="114" fill="#166534">9 健康检查</text><text x="1147" y="132" fill="#15803d">live/ready</text>
+
+    <rect x="1218" y="90" width="100" height="58" rx="6" fill="#ffedd5" stroke="#ea580c"/>
+    <text x="1268" y="114" fill="#9a3412">10 审批</text><text x="1268" y="132" fill="#c2410c">仅 main</text>
+
+    <rect x="1218" y="200" width="100" height="58" rx="6" fill="#ffedd5" stroke="#ea580c"/>
+    <text x="1268" y="224" fill="#9a3412">11 生产发布</text><text x="1268" y="242" fill="#c2410c">失败回滚</text>
+  </g>
+
+  <g stroke="#475569" stroke-width="2" fill="none" marker-end="url(#a)">
+    <path d="M 134 119 L 150 119"/><path d="M 260 119 L 276 119"/><path d="M 386 119 L 402 119"/>
+    <path d="M 522 119 L 538 119"/><path d="M 668 119 L 684 119"/><path d="M 794 119 L 810 119"/>
+    <path d="M 940 119 L 956 119"/><path d="M 1076 119 L 1092 119"/><path d="M 1202 119 L 1218 119"/>
+  </g>
+  <path d="M 1268 148 L 1268 200" stroke="#ea580c" stroke-width="2" fill="none" stroke-dasharray="5 4" marker-end="url(#b)"/>
+  <text x="1130" y="180" font-size="11" fill="#c2410c">审批通过后进入生产</text>
+
+  <defs>
+    <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#475569"/></marker>
+    <marker id="b" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#ea580c"/></marker>
+  </defs>
+</svg>
