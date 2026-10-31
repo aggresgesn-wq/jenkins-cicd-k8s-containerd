@@ -35,7 +35,7 @@ spec:
       limits: {cpu: "1", memory: "2Gi"}
       requests: {cpu: "200m", memory: "512Mi"}
   - name: kubectl
-    image: swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/bitnami/kubectl:1.29
+    image: swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/bitnami/kubectl:1.29.3-debian-12-r3
     command: ['cat']
     tty: true
     resources:
@@ -190,13 +190,18 @@ EOF
             }
         }
 
-        stage('6. 部署测试环境') {
+        stage('6. 部署测试环境（kustomize + digest）') {
             steps {
                 container('kubectl') {
                     sh '''
                         set -e
-                        kubectl -n "$K8S_NS_STAGING" set image deployment/"$K8S_DEPLOY" \
-                          "$K8S_DEPLOY=$FULL_IMG" --record=false
+                        cd "$WORKSPACE"
+                        DIGEST=$(cat .image-digest 2>/dev/null || true)
+                        if [ -n "$DIGEST" ]; then IMAGE_REF="$FULL_IMG@$DIGEST"; else IMAGE_REF="$FULL_IMG"; fi
+                        echo "部署镜像：$IMAGE_REF"
+                        kubectl kustomize deploy/k8s/overlays/staging \
+                          | sed "s|IMAGE_PLACEHOLDER|$IMAGE_REF|g" \
+                          | kubectl apply -f -
                         kubectl -n "$K8S_NS_STAGING" rollout status deployment/"$K8S_DEPLOY" --timeout=180s
                     '''
                 }
@@ -208,11 +213,13 @@ EOF
                 container('kubectl') {
                     sh '''
                         set -e
-                        IP=$(kubectl -n "$K8S_NS_STAGING" get svc "$K8S_DEPLOY" -o jsonpath='{.spec.clusterIP}')
                         for path in /health/live /health/ready; do
                           for i in $(seq 1 20); do
-                            if curl -fsS "http://$IP$path" >/dev/null; then echo "$path OK"; break; fi
-                            [ "$i" = "20" ] && { echo "$path 检查失败"; exit 1; }
+                            if kubectl -n "$K8S_NS_STAGING" exec deployment/"$K8S_DEPLOY" -- \
+                               python -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:5000$path', timeout=5).status == 200 else 1)"; then
+                              echo "staging $path OK"; break
+                            fi
+                            [ "$i" = "20" ] && { echo "staging $path 检查失败"; exit 1; }
                             sleep 3
                           done
                         done
@@ -238,16 +245,25 @@ EOF
                 container('kubectl') {
                     sh '''
                         set -e
+                        cd "$WORKSPACE"
+                        DIGEST=$(cat .image-digest 2>/dev/null || true)
+                        if [ -n "$DIGEST" ]; then IMAGE_REF="$FULL_IMG@$DIGEST"; else IMAGE_REF="$FULL_IMG"; fi
+                        echo "生产部署镜像：$IMAGE_REF"
+
                         kubectl -n "$K8S_NS_PROD" annotate deployment/"$K8S_DEPLOY" \
                           "ci/previous-image=$(kubectl -n "$K8S_NS_PROD" get deployment/"$K8S_DEPLOY" -o jsonpath='{.spec.template.spec.containers[0].image}')" \
                           --overwrite
-                        kubectl -n "$K8S_NS_PROD" set image deployment/"$K8S_DEPLOY" "$K8S_DEPLOY=$FULL_IMG"
+                        kubectl kustomize deploy/k8s/overlays/production \
+                          | sed "s|IMAGE_PLACEHOLDER|$IMAGE_REF|g" \
+                          | kubectl apply -f -
                         kubectl -n "$K8S_NS_PROD" rollout status deployment/"$K8S_DEPLOY" --timeout=300s
 
-                        IP=$(kubectl -n "$K8S_NS_PROD" get svc "$K8S_DEPLOY" -o jsonpath='{.spec.clusterIP}')
                         for path in /health/live /health/ready; do
                           for i in $(seq 1 20); do
-                            if curl -fsS "http://$IP$path" >/dev/null; then echo "prod $path OK"; break; fi
+                            if kubectl -n "$K8S_NS_PROD" exec deployment/"$K8S_DEPLOY" -- \
+                               python -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:5000$path', timeout=5).status == 200 else 1)"; then
+                              echo "prod $path OK"; break
+                            fi
                             [ "$i" = "20" ] && { echo "prod $path 检查失败"; exit 1; }
                             sleep 3
                           done

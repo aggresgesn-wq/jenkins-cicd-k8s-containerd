@@ -136,6 +136,7 @@ kubectl -n webapp-staging rollout status deployment/webapp --timeout=180s
 
 - 在 Ingress 中配置域名与 TLS Secret `webapp-tls`，并把 DNS 指向 Ingress Controller。
 - `/metrics` 已在 Ingress 层拒绝公网访问，只允许集群内 Prometheus 抓取；需要临时排查时用 `kubectl port-forward`。
+- Jenkins 流水线现在通过 `kubectl kustomize deploy/k8s/overlays/{staging,production}` 渲染整套配置后 `kubectl apply`，并用 `image@sha256:<digest>` 部署（digest 由 kaniko 输出），因此 ConfigMap、Ingress、HPA、PDB、NetworkPolicy 的变更也会随流水线发布。
 - 如使用 Helm/GitOps，可用 `helm upgrade` 替代 `kubectl apply`；首次部署若因依赖顺序失败，确认 namespace、Secret、ConfigMap、PVC 已存在后重新 `kubectl apply -f deploy/k8s/`。
 
 ### 使用 Helm 部署（可选）

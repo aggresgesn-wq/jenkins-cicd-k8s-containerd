@@ -1,13 +1,15 @@
 # Jenkins 构建 Pod 使用的最小权限 RBAC
 #
 # 说明：
-#   * ServiceAccount 必须与 Jenkins Agent Pod 处于同一命名空间（默认 jenkins），
-#     因此这里单独列出，安装 Jenkins 时先执行：
-#       kubectl -n jenkins apply -f jenkins-rbac.yaml 的 ServiceAccount 部分
-#   * Role/RoleBinding 位于业务命名空间 webapp，只允许滚动更新 Deployment 和查看状态，
-#     不授予集群级权限，也禁止读取 Secret。
-#   * 若 Jenkins 安装在其他命名空间，请把 jenkins-deployer 的 namespace 与
-#     RoleBinding subjects 中的 namespace 一起替换。
+#   * ServiceAccount 必须与 Jenkins Agent Pod 处于同一命名空间（默认 jenkins）；
+#   * Role/RoleBinding 分别位于生产 webapp 与测试 webapp-staging 两个命名空间；
+#   * 流水线通过 kubectl kustomize + apply 发布整套配置，因此需要创建/更新
+#     Deployment、Service、ConfigMap、PVC、Ingress、NetworkPolicy、PDB、HPA 等资源，
+#     但仍然禁止读取 Secret、禁止集群级资源与命名空间管理；
+#   * 应用前先由管理员创建命名空间：
+#       kubectl apply -f deploy/k8s/namespace.yaml
+#       kubectl apply -f deploy/k8s/overlays/staging/namespace.yaml
+#   * 若 Jenkins 安装在其他命名空间，请替换 subjects 中的 namespace。
 apiVersion: v1
 kind: ServiceAccount
 metadata:
@@ -22,23 +24,73 @@ metadata:
 rules:
   - apiGroups: ["apps"]
     resources: ["deployments"]
-    verbs: ["get", "list", "watch", "patch", "update"]
+    verbs: ["get", "list", "watch", "create", "update", "patch"]
   - apiGroups: ["apps"]
     resources: ["replicasets"]
     verbs: ["get", "list", "watch"]
   - apiGroups: [""]
-    resources: ["pods", "pods/log", "services", "endpoints"]
-    verbs: ["get", "list", "watch"]
-  # Jenkins 健康检查阶段需要 port-forward 到 Service
+    resources: ["services", "configmaps", "persistentvolumeclaims", "serviceaccounts", "pods", "pods/log", "endpoints"]
+    verbs: ["get", "list", "watch", "create", "update", "patch"]
   - apiGroups: [""]
-    resources: ["pods/portforward", "services/portforward"]
+    resources: ["pods/exec"]
     verbs: ["create", "get"]
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["ingresses", "networkpolicies"]
+    verbs: ["get", "list", "watch", "create", "update", "patch"]
+  - apiGroups: ["policy"]
+    resources: ["poddisruptionbudgets"]
+    verbs: ["get", "list", "watch", "create", "update", "patch"]
+  - apiGroups: ["autoscaling"]
+    resources: ["horizontalpodautoscalers"]
+    verbs: ["get", "list", "watch", "create", "update", "patch"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
   name: jenkins-deployer
   namespace: webapp
+subjects:
+  - kind: ServiceAccount
+    name: jenkins-deployer
+    namespace: jenkins
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: jenkins-deployer
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: jenkins-deployer
+  namespace: webapp-staging
+rules:
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get", "list", "watch", "create", "update", "patch"]
+  - apiGroups: ["apps"]
+    resources: ["replicasets"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["services", "configmaps", "persistentvolumeclaims", "serviceaccounts", "pods", "pods/log", "endpoints"]
+    verbs: ["get", "list", "watch", "create", "update", "patch"]
+  - apiGroups: [""]
+    resources: ["pods/exec"]
+    verbs: ["create", "get"]
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["ingresses", "networkpolicies"]
+    verbs: ["get", "list", "watch", "create", "update", "patch"]
+  - apiGroups: ["policy"]
+    resources: ["poddisruptionbudgets"]
+    verbs: ["get", "list", "watch", "create", "update", "patch"]
+  - apiGroups: ["autoscaling"]
+    resources: ["horizontalpodautoscalers"]
+    verbs: ["get", "list", "watch", "create", "update", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: jenkins-deployer
+  namespace: webapp-staging
 subjects:
   - kind: ServiceAccount
     name: jenkins-deployer
