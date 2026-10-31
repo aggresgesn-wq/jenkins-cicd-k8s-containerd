@@ -1,6 +1,6 @@
 # Webapp：Flask + Vue 后台权限管理系统
 
-`webapp/` 是 [jenkins-gitea-k8s-containerd](https://github.com/aggresgesn-wq/jenkins-gitea-k8s-containerd) 的内置示例应用，用于演示一个真实前后端项目如何被 Jenkins 测试、扫描、构建并部署到 Kubernetes。后端基于 Flask 2.2，前端基于 Vue 2 + Element UI，生产使用 gunicorn 运行。
+`webapp/` 是 [jenkins-github-k8s-containerd](https://github.com/aggresgesn-wq/jenkins-github-k8s-containerd) 的内置示例应用，用于演示一个真实前后端项目如何被 Jenkins 测试、扫描、构建并部署到 Kubernetes。后端基于 Flask 2.2，前端基于 Vue 2 + Element UI，生产使用 gunicorn 运行。
 
 > 本项目基于上游 AuthBase（<https://gitee.com/zhujf21st/authbase>）二次开发，沿用 Apache License 2.0，详见 [LICENSE](LICENSE)。
 

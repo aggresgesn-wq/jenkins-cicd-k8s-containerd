@@ -9,6 +9,6 @@ keywords:
   - vue
   - rbac
   - cicd
-home: https://github.com/aggresgesn-wq/jenkins-gitea-k8s-containerd
+home: https://github.com/aggresgesn-wq/jenkins-github-k8s-containerd
 sources:
-  - https://github.com/aggresgesn-wq/jenkins-gitea-k8s-containerd
+  - https://github.com/aggresgesn-wq/jenkins-github-k8s-containerd
