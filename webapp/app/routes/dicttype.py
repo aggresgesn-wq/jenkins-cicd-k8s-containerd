@@ -94,10 +94,22 @@ def sytype_delete(ids):
     idList = ids.split(',')
     for id in idList:
         dictType = DictType.query.get(id)
-        if dictType:
-            db.session.delete(dictType)
+        if dictType is None:
+            continue
+        # 字典类型仍被字典数据引用时禁止删除，避免留下孤儿数据
+        if DictData.query.filter(DictData.dict_type == dictType.dict_type).count() > 0:
+            return jsonify({'code': 409, 'msg': '该字典类型下仍有字典数据，不能删除'}), 409
+        db.session.delete(dictType)
 
     return jsonify({'code': 200, 'msg': '操作成功'})
+
+
+@base.route('/system/dict/type/refreshCache', methods=['DELETE'])
+@login_required
+@permission('system:dict:remove')
+def dicttype_refresh_cache():
+    """当前实现没有独立缓存层，接口保留为显式空操作。"""
+    return jsonify({'code': 200, 'msg': '缓存已刷新'})
 
 @base.route('/system/dict/type/optionselect', methods=['GET'])
 @login_required

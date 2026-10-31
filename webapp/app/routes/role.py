@@ -14,6 +14,7 @@ from sqlalchemy import or_
 from flask_login import login_required
 from .. import permission
 from ..security import transactional
+from ..operationlog import log_operation
 
 
 @base.route('/system/role/authUser/cancelAll', methods=['PUT'])
@@ -96,16 +97,19 @@ def syrole_getById(id):
 @base.route('/system/role', methods=['PUT'])
 @login_required
 @permission('system:role:edit')
+@log_operation('修改角色')
 @transactional
 def syrole_update():
     role = Role.query.get(request.json['roleId'])
+    if role is None:
+        return jsonify({'code': 404, 'msg': '角色不存在'}), 404
 
     role.UPDATEDATETIME = datetime.now()
     role.NAME = request.json['roleName']
     role.DESCRIPTION = request.json['remark']
     role.SEQ = request.json['roleSort']
     if 'roleKey' in request.json: role.ROLEKEY = request.json['roleKey']
-    if 'dataScope' in request.json: role.DATASCOPE = request.json['dataScope']
+    if 'dataScope' in request.json: role.DATASCOPE = str(request.json['dataScope'])
 
     if 'menuIds' in request.json:
         res_list = [Resource.query.get(menuId) for menuId in request.json['menuIds']]
@@ -118,6 +122,7 @@ def syrole_update():
 @base.route('/system/role', methods=['POST'])
 @login_required
 @permission('system:role:add')
+@log_operation('新增角色')
 @transactional
 def syrole_save():
     role = Role()
@@ -127,7 +132,7 @@ def syrole_save():
     if 'roleKey' in request.json: role.ROLEKEY = request.json['roleKey']
     if 'remark' in request.json: role.DESCRIPTION = request.json['remark']
     role.SEQ = request.json['roleSort']
-    if 'dataScope' in request.json: role.DATASCOPE = request.json['dataScope']
+    if 'dataScope' in request.json: role.DATASCOPE = str(request.json['dataScope'])
 
     if 'menuIds' in request.json:
         res_list = [Resource.query.get(menuId) for menuId in request.json['menuIds']]
@@ -146,8 +151,14 @@ def syrole_save():
 @transactional
 def syrole_delete(id):
     role = Role.query.get(id)
-    if role:
-        db.session.delete(role)
+    if role is None:
+        return jsonify({'code': 404, 'msg': '角色不存在'}), 404
+    if (role.ROLEKEY or '').lower() in {'superadmin', 'admin'}:
+        return jsonify({'code': 409, 'msg': '内置角色不允许删除'}), 409
+    if role.users.count() > 0:
+        return jsonify({'code': 409, 'msg': '角色仍被用户引用，请先取消授权'}), 409
+
+    db.session.delete(role)
 
     return jsonify({'code': 200, 'msg': '操作成功'})
 
@@ -168,8 +179,12 @@ def allocatedList():
 @permission('system:role:list')
 def unallocatedList():
     page = request.args.get('pageNum', 1, type=int)
-    rows = request.args.get('pageNum', 10, type=int)
-    pagination = User.query.join(Role, User.roles).filter(or_(Role.ID != request.args['roleId'], Role.ID == None)).paginate(
+    rows = request.args.get('pageSize', 10, type=int)
+    role_id = request.args.get('roleId')
+
+    # “未授权用户”= 不含该角色的用户，用 NOT EXISTS 语义表达，
+    # 避免内连接漏掉无角色用户、以及多角色用户重复出现
+    pagination = User.query.filter(~User.roles.any(Role.ID == role_id)).paginate(
         page=page, per_page=rows, error_out=False)
     users = pagination.items
 

@@ -1,10 +1,12 @@
-from .models import OperationLog
-from . import setup_logger
 from functools import wraps
+import time
+
 from flask import request
 from flask_login import current_user
-from . import db
-import time
+from sqlalchemy.orm import Session
+
+from . import db, setup_logger
+from .models import OperationLog
 
 logger = setup_logger(__name__)
 
@@ -24,59 +26,63 @@ def mask_sensitive(value):
     return value
 
 
+def _write_log(payload: dict) -> None:
+    """用独立会话写审计日志。
+
+    不复用请求的业务会话：业务失败回滚时不能把日志一起回滚，
+    业务成功时也不应该由审计逻辑替业务做 commit。
+    """
+    try:
+        with Session(db.engine) as audit_session:
+            audit_session.add(OperationLog(**payload))
+            audit_session.commit()
+    except Exception as exc:  # noqa: BLE001 - 审计失败不能影响主流程
+        logger.error("审计日志写入失败: %s", exc)
+
+
 def log_operation(operation_name):
     def decorator(f):
         @wraps(f)
         def decorated_function(*args, **kwargs):
-            # Log operation details
             method = request.method
             path = request.path
 
-            # Log query parameters
-            if method in ['GET', 'DELETE']:
+            if method in ("GET", "DELETE"):
                 params = request.args.to_dict()
-            else:  # POST/PUT
+            else:
                 params = request.get_json(silent=True) or {}
 
-            params = mask_sensitive(params)
+            try:
+                params = mask_sensitive(params)
+            except Exception:  # noqa: BLE001
+                params = {"_": "unparsable"}
 
-            # Log to console
-            logger.debug(f"Operation: {operation_name}, Method: {method}, Path: {path}, Params: {params}")
+            logger.debug("Operation: %s, Method: %s, Path: %s, Params: %s", operation_name, method, path, params)
 
-            # Save to database
-            log_entry = OperationLog(
-                OPERATION_NAME=operation_name,
-                METHOD=method,
-                PATH=path,
-                PARAMS=str(params),
-                OPERATOR = current_user.NAME if current_user else ''
-            )
-            db.session.add(log_entry)
-            
+            payload = {
+                "OPERATION_NAME": operation_name,
+                "METHOD": method,
+                "PATH": path,
+                "PARAMS": str(params),
+                "OPERATOR": getattr(current_user, "NAME", "") or "",
+            }
+
             start_time = time.time()
             try:
                 result = f(*args, **kwargs)
-                execution_time = time.time() - start_time
-                log_entry.OPERATIONTIME = int(execution_time * 1000)  # Convert to milliseconds
-                json_msg = result.get_json(silent=True) or {}
-                logger.debug(f"Execute successful: {json_msg} | Execution time: {execution_time:.2f} ms")
-                if 'code' in json_msg:
-                    log_entry.RESULT = json_msg['code'] == 200
-                else:
-                    log_entry.RESULT = 1
-                log_entry.RESPONSE = str(json_msg)
-
+                elapsed = int((time.time() - start_time) * 1000)
+                body = result.get_json(silent=True) if hasattr(result, "get_json") else None
+                code = (body or {}).get("code", 200) if isinstance(body, dict) else 200
+                payload.update(OPERATIONTIME=elapsed, RESULT=(code == 200), RESPONSE=str(mask_sensitive(body))[:2000])
                 return result
-            except Exception as e:
-                execution_time = time.time() - start_time
-                log_entry.OPERATIONTIME = int(execution_time * 1000)
-                log_entry.RESULT = 0
-                logger.error(f"Execute failed: {e} | Execution time: {execution_time:.2f} ms")
-                log_entry.EXECEPTION = str(e)
-                db.session.commit()
-                raise e
+            except Exception as exc:
+                elapsed = int((time.time() - start_time) * 1000)
+                payload.update(OPERATIONTIME=elapsed, RESULT=False, EXECEPTION=str(exc)[:2000])
+                raise
             finally:
-                db.session.commit()
-                logger.debug(f"Operation log saved: {log_entry}")
+                # 只写审计日志，不提交/回滚业务会话
+                _write_log(payload)
+
         return decorated_function
+
     return decorator

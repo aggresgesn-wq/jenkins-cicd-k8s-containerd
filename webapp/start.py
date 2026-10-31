@@ -82,9 +82,32 @@ def register_runtime_routes(app) -> None:
     def favicon():
         return app.send_static_file("favicon.ico")
 
-    @app.before_first_request
+    @app.route("/<path:path>", methods=["GET"])
+    def spa_fallback(path):
+        """Vue Router history 模式：非 API 路径统一回退到 index.html。
+
+        否则刷新 /index、/system/user 等前端路由会得到 404。
+        """
+        if path.startswith(("prod-api/", "health/", "metrics", "static/")):
+            return jsonify({"code": 404, "msg": "请求的资源不存在"}), 404
+        try:
+            return app.send_static_file("index.html")
+        except Exception:  # noqa: BLE001 - 本地未构建前端时给出明确提示
+            return jsonify({
+                "code": 404,
+                "msg": "前端静态资源不存在：开发时请使用 npm run dev，生产镜像需先 npm run build:prod",
+            }), 404
+
+    # 首次请求时做一次弱口令自检（before_first_request 在 Flask 2.3+ 已移除，这里用标记位实现）
+    checked = {"done": False}
+
+    @app.before_request
     def _check_default_passwords_once():
+        if checked["done"]:
+            return None
+        checked["done"] = True
         _warn_default_passwords()
+        return None
 
 
 def create_application(config_name: str | None = None):
