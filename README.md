@@ -42,6 +42,14 @@
 
 插件管理、改造前后的历史对比等其余截图见 [docs/JENKINS-UI.md](docs/JENKINS-UI.md)。
 
+## 应用界面（部署后）
+
+| 登录页 | 首页（后台管理框架） |
+| --- | --- |
+| <img src="docs/images/app/01-login.png" width="480" alt="应用登录页"/> | <img src="docs/images/app/02-dashboard.png" width="480" alt="应用首页"/> |
+
+截图来自 Jenkins 构建 → 镜像推送 → K8s 部署后的实际运行环境。登录页拍摄于较早构建，界面中的“记住密码”和预填账号已在当前版本移除（见 [SECURITY.md](SECURITY.md)），以仓库代码为准。
+
 ## 项目定位
 
 | 维度 | 说明 |
@@ -78,6 +86,7 @@ GitHub ──webhook──> Jenkins ──kaniko──> 镜像仓库（ACR）
 │   └── images/
 │       ├── architecture.svg   # 架构图（可编辑源文件）
 │       ├── jenkins/           # Jenkins 界面截图与阶段示意
+│       ├── app/               # 应用运行截图（登录页、首页）
 │       └── legacy/            # 历史图片
 ├── deploy/
 │   ├── k8s/                   # 原生清单 + staging/production overlay
