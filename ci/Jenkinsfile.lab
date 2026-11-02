@@ -1,0 +1,167 @@
+// GitHub layout adapter of the supplied build #53 baseline. Not yet cluster-validated.
+pipeline {
+    agent {
+        kubernetes {
+            yaml """
+apiVersion: v1
+kind: Pod
+spec:
+  nodeSelector:
+    kubernetes.io/hostname: k8s-master
+  # 强制华为云源走 IPv4（Pod 内 DNS 优先返回 IPv6，无 IPv6 路由导致 TLS 握手超时）
+  hostAliases:
+  - ip: "120.46.247.83"
+    hostnames:
+    - swr.cn-north-4.myhuaweicloud.com
+  # 阿里云 PyPI 镜像直连 IP：Pod 内 DNS 被上游污染，解析到 198.18.0.55 假地址并返回 403，需绕过
+  - ip: "183.201.235.209"
+    hostnames:
+    - mirrors.aliyun.com
+  # 华为云 OBS 存储后端：镜像层实际下载走这个域名，同样被 DNS 污染
+  - ip: "122.9.31.195"
+    hostnames:
+    - op-svc-swr-b051-10-38-19-62-3az.obs.cn-north-4.myhuaweicloud.com
+  - ip: "49.4.112.113"
+    hostnames:
+    - obs.cn-north-4.myhuaweicloud.com
+  containers:
+  - name: python
+    image: swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/python:3.11
+    command: ['cat']
+    tty: true
+    resources:
+      limits:
+        cpu: "500m"
+        memory: "512Mi"
+      requests:
+        cpu: "100m"
+        memory: "256Mi"
+  - name: nerdctl
+    image: swr.cn-north-4.myhuaweicloud.com/ddn-k8s/ghcr.io/containerd/nerdctl:latest
+    imagePullPolicy: IfNotPresent
+    command: ['cat']
+    tty: true
+    securityContext:
+      privileged: true
+    volumeMounts:
+    - mountPath: /run/containerd/containerd.sock
+      name: containerd-sock
+    - mountPath: /run/buildkit
+      name: buildkit-sock
+    resources:
+      limits:
+        cpu: "500m"
+        memory: "512Mi"
+      requests:
+        cpu: "100m"
+        memory: "256Mi"
+  # buildkitd sidecar：nerdctl build 必需（OCI worker 模式，自带快照存储，不依赖宿主机 containerd 的 /var/lib/containerd）
+  - name: buildkitd
+    image: swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/moby/buildkit:v0.31.1
+    imagePullPolicy: IfNotPresent
+    args:
+    - --oci-worker=true
+    - --containerd-worker=false
+    - --oci-worker-net=host
+    securityContext:
+      privileged: true
+    volumeMounts:
+    - mountPath: /run/buildkit
+      name: buildkit-sock
+  # JNLP 代理容器（必须显式定义，镜像用华为云源，避免 Docker Hub 拉取失败）
+  - name: jnlp
+    image: swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/jenkins/inbound-agent:3283.v92c105e0f819-9-jdk17
+    imagePullPolicy: IfNotPresent
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+  volumes:
+  - name: containerd-sock
+    hostPath:
+      path: /run/containerd/containerd.sock
+  - name: buildkit-sock
+    emptyDir: {}
+"""
+        }
+    }
+
+    options {
+        timeout(time: 30, unit: 'MINUTES')
+        timestamps()
+        disableConcurrentBuilds()
+        buildDiscarder(logRotator(numToKeepStr: '30'))
+    }
+
+    environment {
+        ACR_REGISTRY = "crpi-m67ogm8wgcr0rh38.cn-hangzhou.personal.cr.aliyuncs.com"
+        ACR_NAMESPACE = "tanchenrui"
+        IMG_NAME = "webapp"
+        IMG_TAG  = sh(script: 'git rev-parse --short HEAD', returnStdout: true).trim()
+        FULL_IMG = "${ACR_REGISTRY}/${ACR_NAMESPACE}/${IMG_NAME}:${IMG_TAG}"
+    }
+
+    stages {
+        stage('1. 检查已检出的应用目录') {
+            steps {
+                sh '''
+                    pwd
+                    test -f webapp/pyproject.toml
+                    test -f webapp/dockerfile
+                    ls -l webapp
+                '''
+            }
+        }
+
+        stage('2. Python 安装依赖(uv)') {
+            steps {
+                container('python') {
+                    sh '''
+                        set -eu
+                        cd webapp
+                        pip install uv -i https://mirrors.aliyun.com/pypi/simple
+                        uv pip install --system -r pyproject.toml --index-url https://mirrors.aliyun.com/pypi/simple
+                    '''
+                }
+            }
+        }
+
+        stage('3. 构建镜像') {
+            steps {
+                container('nerdctl') {
+                    sh '''
+                        set -eu
+                        cd webapp
+                        # 等待 buildkitd 就绪
+                        for i in $(seq 1 30); do
+                          [ -S /run/buildkit/buildkitd.sock ] && break
+                          sleep 1
+                        done
+                        [ -S /run/buildkit/buildkitd.sock ] || { echo "buildkitd 未就绪"; exit 1; }
+
+                        export BUILDKIT_HOST=unix:///run/buildkit/buildkitd.sock
+                        nerdctl build --add-host mirrors.aliyun.com:183.201.235.209 -f dockerfile -t ${FULL_IMG} .
+                    '''
+                }
+            }
+        }
+
+        stage('4. 构建完成（未推送或部署）') {
+            steps {
+                echo "本 Job 仅构建镜像；推送与 Kubernetes 部署须在独立交付 Job 验收"
+            }
+        }
+    }
+
+    post {
+        always {
+            echo "流水线执行结束"
+        }
+        success {
+            echo "镜像构建并导入本地成功（未 push / 未部署）：${FULL_IMG}"
+        }
+        failure {
+            echo "❌ 流水线失败，请查看日志"
+        }
+    }
+}

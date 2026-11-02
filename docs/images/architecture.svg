@@ -1,129 +1,56 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900" font-family="Microsoft YaHei, Noto Sans SC, PingFang SC, sans-serif">
-  <defs>
-    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
-      <path d="M 0 0 L 10 5 L 0 10 z" fill="#475569"/>
-    </marker>
-    <marker id="arrow-dashed" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
-      <path d="M 0 0 L 10 5 L 0 10 z" fill="#9333ea"/>
-    </marker>
-    <marker id="arrow-green" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
-      <path d="M 0 0 L 10 5 L 0 10 z" fill="#059669"/>
-    </marker>
-  </defs>
-
-  <rect width="1600" height="900" fill="#ffffff"/>
-  <text x="40" y="46" font-size="24" font-weight="bold" fill="#0f172a">Jenkins + GitHub + Kubernetes + containerd 端到端交付链路（当前实现）</text>
-  <text x="40" y="72" font-size="14" fill="#64748b">实线 = 已实现；紫色虚线 = 目标能力或跨边界拉取；镜像仓库与 GitHub 属于集群外部服务</text>
-
-  <!-- 外部服务 -->
-  <rect x="30" y="95" width="300" height="330" rx="10" fill="#f8fafc" stroke="#cbd5e1"/>
-  <text x="46" y="122" font-size="15" font-weight="bold" fill="#334155">外部服务（非 Kubernetes Namespace）</text>
-  <rect x="50" y="140" width="260" height="80" rx="8" fill="#e0f2fe" stroke="#0284c7"/>
-  <text x="180" y="175" font-size="16" text-anchor="middle" fill="#075985">GitHub 代码仓库</text>
-  <text x="180" y="198" font-size="12" text-anchor="middle" fill="#0369a1">main 分支 / PR / Commit Status</text>
-  <rect x="50" y="280" width="260" height="80" rx="8" fill="#fef3c7" stroke="#d97706"/>
-  <text x="180" y="315" font-size="16" text-anchor="middle" fill="#92400e">容器镜像仓库（ACR）</text>
-  <text x="180" y="338" font-size="12" text-anchor="middle" fill="#b45309">webapp@sha256:…（不可变 digest）</text>
-
-  <!-- Jenkins namespace -->
-  <rect x="360" y="95" width="430" height="400" rx="10" fill="#eef2ff" stroke="#6366f1"/>
-  <text x="376" y="122" font-size="15" font-weight="bold" fill="#3730a3">namespace: jenkins（CI 控制面）</text>
-  <rect x="380" y="140" width="390" height="70" rx="8" fill="#e0e7ff" stroke="#4f46e5"/>
-  <text x="575" y="170" font-size="16" text-anchor="middle" fill="#3730a3">Jenkins Controller</text>
-  <text x="575" y="192" font-size="12" text-anchor="middle" fill="#4338ca">调度 / Webhook / 审批</text>
-
-  <rect x="380" y="230" width="390" height="245" rx="8" fill="#ffffff" stroke="#818cf8" stroke-dasharray="5 4"/>
-  <text x="396" y="256" font-size="15" font-weight="bold" fill="#3730a3">动态 Jenkins Agent Pod</text>
-  <text x="396" y="282" font-size="12" fill="#334155">1 检出代码　2 pytest　3 前端 lint/build</text>
-  <text x="396" y="304" font-size="12" fill="#334155">4 源码/依赖扫描　5 清单校验（helm/kubeconform）</text>
-  <text x="396" y="326" font-size="12" fill="#334155">6 构建推送　7 Trivy 镜像扫描 + Syft SBOM</text>
-  <text x="396" y="348" font-size="12" fill="#334155">8 部署 staging　9 健康检查　10 审批　11 生产发布</text>
-
-  <rect x="396" y="368" width="170" height="62" rx="6" fill="#dcfce7" stroke="#16a34a"/>
-  <text x="481" y="393" font-size="14" text-anchor="middle" fill="#166534">Kaniko（当前实现）</text>
-  <text x="481" y="415" font-size="11" text-anchor="middle" fill="#15803d">无特权、不挂载 socket</text>
-  <rect x="584" y="368" width="170" height="62" rx="6" fill="#faf5ff" stroke="#9333ea" stroke-dasharray="5 4"/>
-  <text x="669" y="393" font-size="14" text-anchor="middle" fill="#6b21a8">Rootless BuildKit（目标）</text>
-  <text x="669" y="415" font-size="11" text-anchor="middle" fill="#7e22ce">迁移完成前仅作规划</text>
-
-  <!-- 控制平面 -->
-  <rect x="360" y="515" width="430" height="130" rx="10" fill="#f5f3ff" stroke="#8b5cf6"/>
-  <text x="376" y="542" font-size="15" font-weight="bold" fill="#5b21b6">Kubernetes 控制平面</text>
-  <rect x="380" y="558" width="390" height="66" rx="8" fill="#ede9fe" stroke="#7c3aed"/>
-  <text x="575" y="586" font-size="16" text-anchor="middle" fill="#5b21b6">API Server</text>
-  <text x="575" y="608" font-size="12" text-anchor="middle" fill="#6d28d9">接收 kubectl apply / set image</text>
-
-  <!-- Worker node -->
-  <rect x="830" y="95" width="740" height="590" rx="10" fill="#ecfdf5" stroke="#059669"/>
-  <text x="846" y="122" font-size="15" font-weight="bold" fill="#065f46">Worker Node（节点级运行时与业务 Pod）</text>
-  <rect x="860" y="140" width="300" height="60" rx="8" fill="#d1fae5" stroke="#10b981"/>
-  <text x="1010" y="177" font-size="15" text-anchor="middle" fill="#065f46">kubelet</text>
-  <rect x="860" y="225" width="300" height="60" rx="8" fill="#d1fae5" stroke="#10b981"/>
-  <text x="1010" y="262" font-size="15" text-anchor="middle" fill="#065f46">containerd（CRI，SystemdCgroup）</text>
-
-  <rect x="860" y="320" width="330" height="150" rx="8" fill="#ffffff" stroke="#34d399"/>
-  <text x="876" y="346" font-size="14" font-weight="bold" fill="#065f46">namespace: webapp-staging</text>
-  <text x="876" y="372" font-size="12" fill="#334155">Deployment/webapp（1 副本）</text>
-  <text x="876" y="394" font-size="12" fill="#334155">Ingress + Service → Flask/Gunicorn</text>
-  <text x="876" y="416" font-size="12" fill="#334155">/health/live、/health/ready</text>
-
-  <rect x="1210" y="320" width="330" height="150" rx="8" fill="#ffffff" stroke="#059669"/>
-  <text x="1226" y="346" font-size="14" font-weight="bold" fill="#065f46">namespace: webapp（生产）</text>
-  <text x="1226" y="372" font-size="12" fill="#334155">Deployment/webapp（HPA 2–6）</text>
-  <text x="1226" y="394" font-size="12" fill="#334155">Ingress/TLS + Service + PDB</text>
-  <text x="1226" y="416" font-size="12" fill="#334155">失败自动 rollout undo</text>
-
-  <!-- 可观测性 -->
-  <rect x="30" y="720" width="1540" height="150" rx="10" fill="#f8fafc" stroke="#94a3b8"/>
-  <text x="46" y="747" font-size="15" font-weight="bold" fill="#334155">可观测性与审计</text>
-  <rect x="60" y="765" width="300" height="70" rx="8" fill="#e0f2fe" stroke="#0284c7"/>
-  <text x="210" y="795" font-size="14" text-anchor="middle" fill="#075985">Prometheus</text>
-  <text x="210" y="816" font-size="11" text-anchor="middle" fill="#0369a1">抓取 /metrics（15s）</text>
-  <rect x="400" y="765" width="300" height="70" rx="8" fill="#e0f2fe" stroke="#0284c7"/>
-  <text x="550" y="795" font-size="14" text-anchor="middle" fill="#075985">日志系统（Loki/ELK）</text>
-  <text x="550" y="816" font-size="11" text-anchor="middle" fill="#0369a1">采集 stdout / JSON 日志</text>
-  <rect x="740" y="765" width="300" height="70" rx="8" fill="#e0f2fe" stroke="#0284c7"/>
-  <text x="890" y="795" font-size="14" text-anchor="middle" fill="#075985">Grafana + 告警</text>
-  <text x="890" y="816" font-size="11" text-anchor="middle" fill="#0369a1">指标面板 / 规则触发</text>
-  <rect x="1080" y="765" width="300" height="70" rx="8" fill="#fef3c7" stroke="#d97706"/>
-  <text x="1230" y="795" font-size="14" text-anchor="middle" fill="#92400e">操作审计</text>
-  <text x="1230" y="816" font-size="11" text-anchor="middle" fill="#b45309">Flask → SYOPERATIONLOG（脱敏）</text>
-
-  <!-- 连线 -->
-  <path d="M 310 180 L 380 175" stroke="#475569" stroke-width="2" fill="none" marker-end="url(#arrow)"/>
-  <text x="315" y="168" font-size="11" fill="#475569">Webhook</text>
-
-  <path d="M 396 399 L 310 360 L 310 322" stroke="#9333ea" stroke-width="2" fill="none" stroke-dasharray="6 4" marker-end="url(#arrow-dashed)"/>
-  <text x="318" y="352" font-size="11" fill="#6b21a8">push image</text>
-
-  <path d="M 575 461 L 575 558" stroke="#475569" stroke-width="2" fill="none" marker-end="url(#arrow)"/>
-  <text x="586" y="505" font-size="11" fill="#475569">kubectl apply / rollout</text>
-
-  <path d="M 770 591 L 860 591 L 860 180 L 860 170" stroke="#475569" stroke-width="2" fill="none" marker-end="url(#arrow)"/>
-  <text x="790" y="582" font-size="11" fill="#475569">调度 Pod</text>
-
-  <path d="M 1010 200 L 1010 225" stroke="#475569" stroke-width="2" fill="none" marker-end="url(#arrow)"/>
-  <text x="1022" y="219" font-size="11" fill="#475569">start sandbox</text>
-
-  <path d="M 1010 285 L 1010 320" stroke="#475569" stroke-width="2" fill="none" marker-end="url(#arrow)"/>
-  <text x="1022" y="310" font-size="11" fill="#475569">启动容器</text>
-
-  <path d="M 180 360 L 180 470 L 900 470 L 900 285" stroke="#9333ea" stroke-width="2" fill="none" stroke-dasharray="6 4" marker-end="url(#arrow-dashed)"/>
-  <text x="470" y="462" font-size="11" fill="#6b21a8">kubelet 从镜像仓库拉取 webapp@sha256:…</text>
-
-  <path d="M 1010 320 L 1010 340" stroke="#059669" stroke-width="2" fill="none" marker-end="url(#arrow-green)"/>
-
-  <path d="M 1190 395 L 1210 395" stroke="#059669" stroke-width="2.5" fill="none" marker-end="url(#arrow-green)"/>
-  <text x="1130" y="386" font-size="11" fill="#047857">健康检查 → 人工审批</text>
-
-  <path d="M 1040 470 L 1040 560 L 260 560 L 260 765" stroke="#0284c7" stroke-width="1.6" fill="none" stroke-dasharray="5 4" marker-end="url(#arrow)"/>
-  <text x="420" y="552" font-size="11" fill="#0369a1">Pod /metrics → Prometheus</text>
-
-  <path d="M 1100 470 L 1100 600 L 560 600 L 560 765" stroke="#0284c7" stroke-width="1.6" fill="none" stroke-dasharray="5 4" marker-end="url(#arrow)"/>
-  <text x="640" y="592" font-size="11" fill="#0369a1">stdout 日志</text>
-
-  <path d="M 360 800 L 400 800" stroke="#0284c7" stroke-width="1.6" fill="none" marker-end="url(#arrow)"/>
-  <path d="M 700 800 L 740 800" stroke="#0284c7" stroke-width="1.6" fill="none" marker-end="url(#arrow)"/>
-  <path d="M 1230 470 L 1230 700 L 1230 765" stroke="#d97706" stroke-width="1.6" fill="none" stroke-dasharray="5 4" marker-end="url(#arrow)"/>
-  <text x="1242" y="700" font-size="11" fill="#b45309">业务操作审计</text>
-</svg>
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="820" viewBox="0 0 1400 820">
+<defs><marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto"><path d="M0,0 L0,6 L9,3 z" fill="#475569"/></marker></defs>
+<rect width="1400" height="820" fill="#f8fafc"/>
+<g font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif">
+<text x="40" y="48" font-size="27" font-weight="bold" fill="#0f172a">三节点 Kubernetes 运维实验 · Jenkins #53 真实构建链路</text>
+<text x="40" y="78" font-size="16" fill="#475569">1 个集群 / 3 个节点 + 1 台 NFS/Gitea VM；实线为运行证据，虚线为待核实或待验收能力</text>
+<rect x="35" y="112" width="310" height="100" rx="12" fill="#e2e8f0"/>
+<text x="55" y="145" font-size="21" font-weight="bold">GitHub 展示仓库</text>
+<text x="55" y="174" font-size="16">代码 · 模板 · 证据 · 运维手册</text>
+<text x="55" y="196" font-size="14" fill="#475569">与内网 Gitea 的自动同步尚未证实</text>
+<rect x="35" y="238" width="310" height="260" rx="12" fill="#eff6ff" stroke="#3b82f6"/>
+<text x="55" y="272" font-size="21" font-weight="bold">独立服务虚拟机</text>
+<rect x="55" y="291" width="270" height="77" rx="8" fill="#dbeafe"/>
+<text x="72" y="322" font-size="19">Gitea · 应用代码来源</text>
+<text x="72" y="348" font-size="15">main / caa95a0…（#53）</text>
+<rect x="55" y="388" width="270" height="86" rx="8" fill="#dbeafe"/>
+<text x="72" y="419" font-size="19">NFS · 共享存储服务</text>
+<text x="72" y="449" font-size="15">实际导出 / PVC 挂载待采集</text>
+<rect x="35" y="531" width="310" height="116" rx="12" fill="#fef3c7" stroke="#d97706"/>
+<text x="55" y="565" font-size="20" font-weight="bold">Jenkins Controller</text>
+<text x="55" y="596" font-size="16">动态创建 Agent Pod</text>
+<text x="55" y="624" font-size="14">Controller 部署位置待现场核实</text>
+<rect x="420" y="112" width="940" height="535" rx="15" fill="#fff" stroke="#0f766e" stroke-width="2"/>
+<text x="445" y="147" font-size="22" font-weight="bold" fill="#115e59">Kubernetes 单集群 · containerd 运行时</text>
+<text x="445" y="176" font-size="15" fill="#475569">集群规模由用户确认；节点角色 / 版本 / 资源以资产清单为准</text>
+<rect x="445" y="201" width="435" height="274" rx="10" fill="#f0fdf4" stroke="#16a34a"/>
+<text x="465" y="233" font-size="20" font-weight="bold">k8s-master · #53 构建调度节点</text>
+<text x="465" y="266" font-size="17">动态 Agent：jenkins-agent namespace</text>
+<text x="465" y="301" font-size="17">python + nerdctl + buildkitd + jnlp</text>
+<path d="M660,313 L660,341" stroke="#475569" stroke-width="2" marker-end="url(#arrow)"/>
+<text x="465" y="369" font-size="17">BuildKit OCI worker → 镜像导出</text>
+<text x="465" y="404" font-size="17">nerdctl → 本地 containerd 镜像导入</text>
+<text x="465" y="448" font-size="14" fill="#b45309">实验基线：特权 sidecar / 宿主机 socket</text>
+<rect x="905" y="201" width="430" height="115" rx="10" fill="#f1f5f9"/>
+<text x="930" y="238" font-size="20">节点 2</text>
+<text x="930" y="275" font-size="16">主机名 / 角色 / 资源待记录</text>
+<rect x="905" y="338" width="430" height="137" rx="10" fill="#f1f5f9"/>
+<text x="930" y="377" font-size="20">节点 3</text>
+<text x="930" y="414" font-size="16">主机名 / 角色 / 资源待记录</text>
+<text x="930" y="448" font-size="14" fill="#475569">三节点不自动等于高可用</text>
+<path d="M325,329 L445,329" stroke="#475569" stroke-width="2" marker-end="url(#arrow)"/>
+<text x="354" y="313" font-size="14">检出</text>
+<path d="M325,432 L420,432" stroke="#475569" stroke-width="2" stroke-dasharray="6 5" marker-end="url(#arrow)"/>
+<path d="M345,570 L445,570 L445,490" fill="none" stroke="#475569" stroke-width="2" marker-end="url(#arrow)"/>
+<rect x="490" y="508" width="300" height="105" rx="9" fill="#faf5ff" stroke="#9333ea" stroke-dasharray="6 5"/>
+<text x="510" y="542" font-size="19">ACR 镜像推送 · 待验收</text>
+<text x="510" y="577" font-size="15">#53 无 push 命令</text>
+<path d="M790,560 L930,560" stroke="#475569" stroke-width="2" stroke-dasharray="6 5" marker-end="url(#arrow)"/>
+<rect x="940" y="508" width="370" height="105" rx="9" fill="#faf5ff" stroke="#9333ea" stroke-dasharray="6 5"/>
+<text x="960" y="542" font-size="19">K8s 发布 / readiness · 待验收</text>
+<text x="960" y="577" font-size="15">#53 部署 stage 仅 echo</text>
+<rect x="35" y="678" width="1325" height="108" rx="12" fill="#e2e8f0"/>
+<text x="55" y="712" font-size="18" font-weight="bold">运维建设：资产清单 · 节点/Pod/PVC 巡检 · NFS/Gitea 备份恢复 · 故障演练</text>
+<text x="55" y="742" font-size="16">NFS/Gitea VM 为共同故障点；备份需异机保存。#53 成功证明构建链路，不代表完整 CD 或恢复能力已验证。</text>
+<text x="55" y="768" font-size="14" fill="#475569">加固候选入口：ci/Jenkinsfile.hardened（Rootless / 扫描 / digest / staging / 审批），须另行集群验收。</text>
+</g></svg>

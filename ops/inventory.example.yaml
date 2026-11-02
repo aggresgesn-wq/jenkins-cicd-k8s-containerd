@@ -1,0 +1,23 @@
+# 用户确认：1 个 Kubernetes 集群、3 个节点、1 台 NFS/Gitea 虚拟机。
+# 地址、角色、版本、容量必须从现场采集；不要把本模板当作真实资产记录。
+environment: lab
+kubernetes:
+  context: REPLACE_WITH_CONTEXT
+  expected_node_count: 3
+  nodes:
+    - name: k8s-master
+      role: VERIFY_CONTROL_PLANE_ROLE
+      address: REPLACE_WITH_PRIVATE_IP
+    - name: REPLACE_NODE_2
+      role: VERIFY_WORKER_ROLE
+      address: REPLACE_WITH_PRIVATE_IP
+    - name: REPLACE_NODE_3
+      role: VERIFY_WORKER_ROLE
+      address: REPLACE_WITH_PRIVATE_IP
+services_vm:
+  name: REPLACE_VM_NAME
+  services: [nfs, gitea]
+  address: REPLACE_WITH_PRIVATE_IP
+  nfs_exports: [REPLACE_EXPORT_PATH]
+  gitea_version: REPLACE_WITH_INSTALLED_VERSION
+  backup_destination: REPLACE_WITH_SEPARATE_HOST_OR_OBJECT_STORAGE

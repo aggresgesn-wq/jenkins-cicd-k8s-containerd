@@ -10,7 +10,6 @@ kind: Kustomization
 namespace: webapp
 
 resources:
-  - ../../namespace.yaml
   - ../../serviceaccount.yaml
   - ../../configmap.yaml
   - ../../pvc.yaml

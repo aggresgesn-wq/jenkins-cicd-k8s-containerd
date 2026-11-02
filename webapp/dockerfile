@@ -1,75 +1,18 @@
-# 基础镜像默认取自渡渡鸟镜像同步站 https://docker.aityp.com 同步到华为云 SWR 的地址，
-# 国内网络可直接拉取；需要官方镜像时用 --build-arg 覆盖，例如：
-#   docker build -f dockerfile \
-#     --build-arg UI_IMAGE=node:18 \
-#     --build-arg BASE_IMAGE=python:3.11 \
-#     -t webapp:dev .
-# 注意：下面两个地址是刻意的国内加速地址，非必要不要修改。
-ARG UI_IMAGE=swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/node:18
-ARG BASE_IMAGE=swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/python:3.11
-
-# ---------------------------------------------------------------------------
-# 阶段 1：构建 Vue 前端
-# ---------------------------------------------------------------------------
-FROM ${UI_IMAGE} AS ui-builder
-
+# 阶段1: 构建 Vue 前端
+FROM swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/node:18 AS ui-builder
 WORKDIR /ui
-
-# 先拷贝依赖清单，让 npm ci 层可以复用缓存；lock 文件保证构建可复现。
-COPY ui/package.json ui/package-lock.json ./
+COPY ui/ /ui/
 RUN npm config set registry https://registry.npmmirror.com \
-    && npm ci --no-audit --no-fund
+    && npm install \
+    && npm run build:prod
 
-COPY ui/ ./
-
-# 产物：dist/index.html + dist/static/**
-RUN npm run build:prod
-
-# ---------------------------------------------------------------------------
-# 阶段 2：Python 运行时
-# ---------------------------------------------------------------------------
-FROM ${BASE_IMAGE}
-
-# 不写 .pyc、日志实时输出到 stdout；FLASK_CONFIG 可被编排平台覆盖。
-ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1 \
-    FLASK_CONFIG=production \
-    PIP_NO_CACHE_DIR=1 \
-    PIP_DISABLE_PIP_VERSION_CHECK=1 \
-    HOME=/tmp
-
+# 阶段2: Python 后端 + 前端产物
+FROM swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/python:3.11
 WORKDIR /app
-
-# 创建与 Kubernetes securityContext 一致的非 root 用户（uid/gid 10001）；
-# 不创建 home 目录，HOME 指向可写的 /tmp（K8s 中根文件系统为只读）。
-RUN groupadd --gid 10001 appuser \
-    && useradd --uid 10001 --gid 10001 --no-create-home \
-       --shell /usr/sbin/nologin appuser
-
-# 先安装依赖，利用 Docker 层缓存；pip 使用清华镜像。
-# pyproject.toml 已包含 gunicorn 与 mysql-connector-python，这里只安装一次。
-COPY pyproject.toml ./
-RUN pip install --no-cache-dir -i https://pypi.tuna.tsinghua.edu.cn/simple uv \
-    && uv --no-cache pip install --system -r pyproject.toml \
-         --index-url https://pypi.tuna.tsinghua.edu.cn/simple
-
-# 应用代码（.dockerignore 已排除测试、文档、前端依赖等无关内容）
 COPY . /app
-
-# 前端构建产物：dist/static/* -> app/static/（Flask 默认静态目录），index.html 一并放入
-COPY --from=ui-builder /ui/dist/static/ /app/app/static/
+RUN pip install uv -i https://mirrors.aliyun.com/pypi/simple && uv pip install --system -r pyproject.toml --index-url https://mirrors.aliyun.com/pypi/simple
+# 前端构建产物: dist/static/* -> app/static/ (Flask 默认静态目录), index.html 一并放入
+COPY --from=ui-builder /ui/dist/static/. /app/app/static/
 COPY --from=ui-builder /ui/dist/index.html /app/app/static/index.html
-# public/favicon.ico 会被 Vue CLI 原样拷贝到 dist 根目录，供 /favicon.ico 路由使用
-COPY --from=ui-builder /ui/dist/favicon.ico /app/app/static/favicon.ico
-
-# 头像上传目录必须对 uid 10001 可写；K8s 中会用 PVC 挂载覆盖 /app/uploads。
-RUN mkdir -p /app/uploads \
-    && chown -R appuser:appuser /app/uploads
-
 EXPOSE 5000
-
-# 运行时使用非 root 用户（与 K8s 的 runAsUser: 10001 保持一致）
-USER 10001
-
-# 生产启动命令；健康检查由 start.py 注册的 /health/live、/health/ready 提供
-CMD ["gunicorn", "--config", "gunicorn.conf.py", "wsgi:app"]
+CMD ["python", "start.py"]

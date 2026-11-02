@@ -1,27 +1,35 @@
-# 镜像清单（统一走渡渡鸟镜像同步站）
+> 状态更新（2026-11-02）：本文描述加固候选方案，未由 #53 执行。当前实跑基线为 webapp/Jenkinsfile（Gitea + nerdctl/BuildKit）；参见根目录 README 和 docs/evidence/build-53/。
 
-仓库内所有容器镜像都使用 [docker.aityp.com](https://docker.aityp.com) 同步到华为云 SWR 的地址，避免 Docker Hub / gcr.io 在国内不可达：
+# 镜像清单
+
+## #53 实跑基线
+
+原始 webapp/Jenkinsfile 使用 python:3.11、nerdctl:latest、moby/buildkit:v0.31.1、固定版本 inbound-agent 的 SWR 镜像；webapp/dockerfile 使用 Node 18 和 Python 3.11。具体完整地址以这两个保留原文件为准。nerdctl 的 latest 尚未固定 digest，不应声称构建完全可复现。
+
+下表仅描述 ci/Jenkinsfile.hardened 的加固候选，不能套用到 #53。
+
+基础镜像优先使用 [docker.aityp.com](https://docker.aityp.com) 同步到华为云 SWR 的地址，避免 Docker Hub / gcr.io 在国内不可达：
 
 ```text
 swr.cn-north-4.myhuaweicloud.com/ddn-k8s/<原始仓库>/<镜像>:<tag>
 ```
 
-## 流水线构建 Pod（webapp/Jenkinsfile）
+## 流水线构建 Pod（ci/Jenkinsfile.hardened）
 
 | 容器 | 原始镜像 | 使用的镜像地址 |
 | --- | --- | --- |
 | python | `docker.io/python:3.11` | `swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/python:3.11` |
 | node | `docker.io/node:18` | `swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/node:18` |
-| kaniko | `gcr.io/kaniko-project/executor:v1.23.2-debug` | `swr.cn-north-4.myhuaweicloud.com/ddn-k8s/gcr.io/kaniko-project/executor:v1.23.2-debug` |
+| buildkit | `moby/buildkit:v0.31.1-rootless` | 同原始镜像；使用前确认网络或同步企业仓库 |
 | kubectl | `docker.io/bitnami/kubectl:1.29.3-debian-12-r3` | `swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/bitnami/kubectl:1.29.3-debian-12-r3` |
 | helm（清单 lint） | `docker.io/alpine/helm:3.20.2` | `swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/alpine/helm:3.20.2` |
-| kubeconform（Schema 校验） | `ghcr.io/yannh/kubeconform:latest` | `swr.cn-north-4.myhuaweicloud.com/ddn-k8s/ghcr.io/yannh/kubeconform:latest` |
+| kubeconform（Schema 校验） | `ghcr.io/yannh/kubeconform:v0.6.7-alpine` | 同原始镜像（包含 shell） |
 | trivy（镜像扫描） | `docker.io/aquasec/trivy:0.68.2` | `swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/aquasec/trivy:0.68.2` |
-| syft（SBOM） | `docker.io/anchore/syft:v1.46.0` | `swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/anchore/syft:v1.46.0` |
+| syft（SBOM） | `anchore/syft:v1.46.0-debug` | 同原始镜像（/busybox/sh） |
 
 > `bitnami/kubectl:1.29` 这种短 tag 在同步站不存在，必须用完整 tag（如 `1.29.3-debian-12-r3`）。
 
-## 应用构建（webapp/dockerfile）
+## 应用构建（webapp/dockerfile.production）
 
 | 阶段 | 原始镜像 | 默认地址（可用 build-arg 覆盖） |
 | --- | --- | --- |
@@ -46,7 +54,7 @@ swr.cn-north-4.myhuaweicloud.com/ddn-k8s/<原始仓库>/<镜像>:<tag>
 ```bash
 cd webapp
 python docker/mirror.py python:3.11 node:18 mysql:8.0
-python docker/mirror.py gcr.io/kaniko-project/executor:v1.23.2-debug
+python docker/mirror.py moby/buildkit:v0.31.1-rootless
 python docker/mirror.py bitnami/kubectl:1.29.3-debian-12-r3
 ```
 

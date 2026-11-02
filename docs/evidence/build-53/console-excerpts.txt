@@ -1,0 +1,13 @@
+Checking out Revision caa95a0eb76b2046eb9ed2acdbae54133971133f (refs/remotes/origin/main) Commit message: "fix(build): switch dockerfile pypi source to aliyun and add buildkit add-host"  > git rev-parse refs/remotes/origin/main^{commit}
+
++ nerdctl build --add-host mirrors.aliyun.com:183.201.235.209 -f dockerfile -t crpi-m67ogm8wgcr0rh38.cn-hangzhou.personal.cr.aliyuncs.com/tanchenrui/webapp:caa95a0 .
+
+#13 127.5 Conflict: Multiple assets emit different content to the same filename static/js/.gz
+
+#16 exporting manifest sha256:cfac55dea391e2d79766a6361093ee3b711f2d96ce3eda77bd11b0a1dbcd54f9 done
+
+Loaded image: crpi-m67ogm8wgcr0rh38.cn-hangzhou.personal.cr.aliyuncs.com/tanchenrui/webapp:caa95a0
+
+[Pipeline] echo 后续填入kubectl更新镜像命令
+
+Finished: SUCCESS
