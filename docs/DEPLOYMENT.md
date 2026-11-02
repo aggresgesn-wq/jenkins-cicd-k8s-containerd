@@ -1,4 +1,4 @@
-> 状态更新（2026-11-02）：本文描述加固候选方案，未由 #53 执行。当前实跑基线为 webapp/Jenkinsfile（Gitea + nerdctl/BuildKit）；参见根目录 README 和 docs/evidence/build-53/。
+> 状态更新（2026-11-02）：本文描述加固候选方案，未由 #53 执行。当前实跑基线为 webapp/Jenkinsfile（Gitee 主源 / Gitea 备用拉取 + nerdctl/BuildKit）；参见根目录 README 和 docs/evidence/build-53/。
 
 # 部署指南
 
