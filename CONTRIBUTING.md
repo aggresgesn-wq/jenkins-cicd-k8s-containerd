@@ -16,13 +16,11 @@
 本地准备：
 
 ```powershell
-# 目录：E:\CICD\webapp（PowerShell）
 uv sync
 uv run --with pytest python -m pytest tests -q
 uv run --with ruff ruff check .
 uv run --with ruff ruff format --check .
 
-# 目录：E:\CICD\webapp\ui（PowerShell）
 npm install --registry=https://registry.npmmirror.com
 npm run lint
 npm run build:prod

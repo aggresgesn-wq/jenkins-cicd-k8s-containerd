@@ -10,7 +10,6 @@
 - Jenkins（集群内或集群外均可），用于运行 `webapp/Jenkinsfile`。
 
 ```powershell
-# 目录：E:\CICD（PowerShell）
 kubectl get nodes
 kubectl create namespace webapp --dry-run=client -o yaml | kubectl apply -f -
 ```
@@ -21,7 +20,6 @@ kubectl create namespace webapp --dry-run=client -o yaml | kubectl apply -f -
 运行期密钥放在 K8s Secret 中，名称示例为 `webapp-secret`，必须与 Deployment 的 `secretRef` 一致。
 
 ```powershell
-# 目录：E:\CICD（PowerShell）
 $SECRET_KEY = python -c "import secrets; print(secrets.token_hex(32))"
 $CAPTCHA_SECRET_KEY = python -c "import secrets; print(secrets.token_hex(32))"
 
@@ -39,7 +37,6 @@ kubectl -n webapp create secret generic webapp-secret `
 拉取 ACR 私有镜像还需要 docker-registry 类型的 Secret：
 
 ```powershell
-# 目录：E:\CICD（PowerShell）
 kubectl -n webapp create secret docker-registry acr-pull `
   --docker-server="crpi-m67ogm8wgcr0rh38.cn-hangzhou.personal.cr.aliyuncs.com" `
   --docker-username="your-username" `
@@ -53,7 +50,6 @@ kubectl -n webapp create secret docker-registry acr-pull `
 ### 方式 A：本地/测试用 MySQL 容器
 
 ```powershell
-# 目录：E:\CICD（PowerShell）
 $env:MYSQL_ROOT_PASSWORD = "replace-with-strong-password"
 docker run -d --name webapp-mysql -p 3306:3306 `
   -e MYSQL_ROOT_PASSWORD="$env:MYSQL_ROOT_PASSWORD" `
@@ -67,7 +63,6 @@ docker exec -i webapp-mysql mysql -uroot -p"$env:MYSQL_ROOT_PASSWORD" authbase -
 ```
 
 ```powershell
-# 目录：E:\CICD（PowerShell；创建应用账号，密码与 DATABASE_URI 一致）
 docker exec -i webapp-mysql mysql -uroot -p"$env:MYSQL_ROOT_PASSWORD" -e "CREATE USER IF NOT EXISTS 'webapp'@'%' IDENTIFIED BY 'REPLACE_ME'; GRANT SELECT,INSERT,UPDATE,DELETE ON authbase.* TO 'webapp'@'%'; FLUSH PRIVILEGES;"
 ```
 
@@ -76,7 +71,6 @@ docker exec -i webapp-mysql mysql -uroot -p"$env:MYSQL_ROOT_PASSWORD" -e "CREATE
 ### 方式 B：托管 MySQL
 
 ```bash
-# 目录：E:\CICD（Git Bash）
 mysql -h "$DB_HOST" -u "$DB_ADMIN" -p -e "CREATE DATABASE IF NOT EXISTS authbase CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci;"
 mysql -h "$DB_HOST" -u "$DB_ADMIN" -p authbase < webapp/db.sql
 ```
@@ -87,7 +81,6 @@ mysql -h "$DB_HOST" -u "$DB_ADMIN" -p authbase < webapp/db.sql
 
 ## 4. 构建镜像
 ```powershell
-# 目录：E:\CICD（PowerShell；构建上下文为 webapp，COPY 路径相对该目录）
 $env:ACR_REGISTRY = "crpi-m67ogm8wgcr0rh38.cn-hangzhou.personal.cr.aliyuncs.com"; $env:ACR_NAMESPACE = "<acr-namespace>"; $env:IMAGE_TAG = "local"
 docker build -f webapp/dockerfile `
   --build-arg UI_IMAGE="swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/node:18" `
@@ -107,7 +100,6 @@ docker push "$env:ACR_REGISTRY/$env:ACR_NAMESPACE/webapp:$env:IMAGE_TAG"
 CI 中使用 kaniko，不依赖 Docker daemon：
 
 ```bash
-# 目录：Jenkins 构建 Pod 内
 /kaniko/executor --context=/workspace/webapp --dockerfile=/workspace/webapp/dockerfile \
   --destination="$FULL_IMG" \
   --build-arg=UI_IMAGE="$UI_IMAGE" --build-arg=BASE_IMAGE="$BASE_IMAGE"
@@ -117,7 +109,6 @@ kaniko 使用 Jenkins 挂载的仓库凭据，不需要 privileged 容器，也�
 
 ## 5. 部署到 Kubernetes
 ```powershell
-# 目录：E:\CICD（PowerShell）
 kubectl apply -f deploy/k8s/
 kubectl -n webapp set image deployment/webapp webapp="$env:ACR_REGISTRY/$env:ACR_NAMESPACE/webapp:$env:IMAGE_TAG"
 kubectl -n webapp rollout status deployment/webapp --timeout=180s
@@ -128,7 +119,6 @@ kubectl -n webapp get pods,svc,ingress
 - 测试环境使用独立命名空间 `webapp-staging`，Jenkins 在人工批准前只会改动它，不会触碰生产：
 
 ```powershell
-# 目录：E:\CICD（PowerShell）
 kubectl apply -f deploy/k8s/overlays/staging/namespace.yaml
 kubectl kustomize deploy/k8s/overlays/staging | kubectl apply -f -
 kubectl -n webapp-staging rollout status deployment/webapp --timeout=180s
@@ -144,7 +134,6 @@ kubectl -n webapp-staging rollout status deployment/webapp --timeout=180s
 `deploy/helm/webapp` 与 `deploy/k8s` 管理同一批资源，二选一：
 
 ```powershell
-# 目录：E:\CICD（PowerShell）
 helm upgrade --install webapp deploy/helm/webapp -n webapp --create-namespace `
   --set image.tag="$(git rev-parse --short HEAD)" `
   --set ingress.host="app.example.com"
@@ -157,11 +146,9 @@ helm rollback webapp 1 -n webapp
 
 ## 6. 健康检查与回滚
 ```powershell
-# 目录：E:\CICD（PowerShell，单独终端保持运行）
 kubectl -n webapp port-forward svc/webapp 8080:80
 ```
 ```powershell
-# 目录：E:\CICD（PowerShell，另一个终端）
 curl.exe -i http://127.0.0.1:8080/health/live
 curl.exe -i http://127.0.0.1:8080/health/ready
 kubectl -n webapp get endpoints webapp
@@ -170,7 +157,6 @@ kubectl -n webapp get endpoints webapp
 两个探针都应返回 200，且 `endpoints` 中至少有一个 Ready 地址。`/health/ready` 失败通常意味着数据库不可用；此时 Pod 会被摘除流量，但不会被重启。
 
 ```powershell
-# 目录：E:\CICD（PowerShell）
 kubectl -n webapp rollout history deployment/webapp
 kubectl -n webapp rollout undo deployment/webapp
 kubectl -n webapp rollout undo deployment/webapp --to-revision=2
@@ -260,7 +246,6 @@ Authorization: token $GITHUB_TOKEN
 `deploy/k8s/mysql-backup-cronjob.yaml` 提供每日 `mysqldump` 备份（03:30，保留 7 天）：
 
 ```powershell
-# 目录：E:\CICD（PowerShell）
 kubectl apply -f deploy/k8s/mysql.yaml
 kubectl apply -f deploy/k8s/mysql-backup-cronjob.yaml
 kubectl -n webapp get cronjob,pods -l app=mysql-backup
@@ -290,7 +275,6 @@ kubectl -n webapp exec -it mysql-0 -- sh -c \
 应用在 `/metrics` 暴露 Prometheus 指标，配套告警与 Grafana 面板见 [deploy/monitoring/README.md](../deploy/monitoring/README.md)：
 
 ```powershell
-# 目录：E:\CICD（PowerShell）
 kubectl apply -f deploy/monitoring/servicemonitor.yaml     # Prometheus Operator
 kubectl apply -f deploy/monitoring/prometheusrule.yaml
 ```

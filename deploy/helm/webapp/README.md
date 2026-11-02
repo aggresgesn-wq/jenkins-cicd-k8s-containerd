@@ -5,7 +5,6 @@
 ## 安装
 
 ```bash
-# 目录：E:\CICD
 kubectl create namespace webapp
 
 kubectl -n webapp create secret generic webapp-secret \

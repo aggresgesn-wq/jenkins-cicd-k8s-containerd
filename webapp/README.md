@@ -51,7 +51,6 @@ webapp/
 ### 1. 初始化数据库
 
 ```powershell
-# 目录：E:\CICD\webapp（PowerShell；source 为 mysql 客户端命令）
 mysql -h 127.0.0.1 -u root -p -e "CREATE DATABASE IF NOT EXISTS authbase CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci;"
 mysql -h 127.0.0.1 -u root -p authbase -e "source db.sql"
 ```
@@ -63,7 +62,6 @@ mysql -h 127.0.0.1 -u root -p authbase -e "source db.sql"
 `db.sql` 的种子账号不包含可用密码，启动前先执行：
 
 ```powershell
-# 目录：E:\CICD\webapp（PowerShell；也可用 --password 指定）
 $env:DATABASE_URI = "mysql+mysqlconnector://root:REPLACE_ME@127.0.0.1:3306/authbase?charset=utf8mb4"
 python scripts/reset_password.py --username admin
 ```
@@ -73,7 +71,6 @@ python scripts/reset_password.py --username admin
 ### 3. 启动后端（uv）
 
 ```powershell
-# 目录：E:\CICD\webapp（PowerShell）
 uv sync
 $env:FLASK_CONFIG = "development"
 $env:SECRET_KEY = "dev-only-replace-me"
@@ -87,7 +84,6 @@ uv run python start.py
 ### 3. 启动前端
 
 ```powershell
-# 目录：E:\CICD\webapp\ui（PowerShell）
 npm install --registry=https://registry.npmmirror.com
 npm run dev
 ```
@@ -115,13 +111,11 @@ npm run dev
 ## 运行与测试
 
 ```powershell
-# 目录：E:\CICD\webapp（PowerShell）
 $env:GUNICORN_WORKERS = "4"
 uv run --with gunicorn gunicorn -w "$env:GUNICORN_WORKERS" -b 0.0.0.0:5000 --graceful-timeout 30 wsgi:app
 ```
 
 ```powershell
-# 目录：E:\CICD\webapp（PowerShell）
 curl.exe -fsS http://127.0.0.1:5000/health/live
 curl.exe -fsS http://127.0.0.1:5000/health/ready
 uv run --with pytest python -m pytest tests -q
@@ -135,7 +129,6 @@ npm --prefix ui run build:prod
 ## Docker 构建
 
 ```powershell
-# 目录：E:\CICD\webapp（PowerShell）
 docker build -f dockerfile -t webapp:local .
 ```
 
@@ -168,7 +161,6 @@ swr.cn-north-4.myhuaweicloud.com/ddn-k8s/<原始仓库>/<镜像>:<tag>
 `docker/mirror.py` 封装了站点的公开 API（<https://docker.aityp.com/api/v1/image>），输入原始镜像名即可得到国内地址，只依赖 Python 标准库：
 
 ```bash
-# 目录：E:\CICD\webapp
 python docker/mirror.py python:3.11 node:18 ubuntu:20.04
 # docker.io/python:3.11 -> swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/python:3.11
 
@@ -182,7 +174,6 @@ python docker/mirror.py ghcr.io/containerd/nerdctl:latest --platform linux/arm64
 `dockerfile` 的基础镜像做成了 build ARG，默认就是上面的国内地址，需要官方镜像时覆盖即可：
 
 ```powershell
-# 目录：E:\CICD\webapp（PowerShell）
 docker build -f dockerfile `
   --build-arg UI_IMAGE=node:18 `
   --build-arg BASE_IMAGE=python:3.11 `

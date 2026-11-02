@@ -9,7 +9,6 @@
 ### 方式 A：Helm（推荐，K8s 内）
 
 ```bash
-# 目录：E:\CICD
 helm repo add jenkins https://charts.jenkins.io
 helm repo update
 
