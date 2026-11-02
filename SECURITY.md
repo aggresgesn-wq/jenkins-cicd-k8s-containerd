@@ -86,7 +86,6 @@
 运行期抽查：
 
 ```powershell
-# 目录：E:\CICD（PowerShell）
 kubectl -n webapp get secret webapp-secret
 kubectl -n webapp get pods -l app=webapp
 kubectl -n webapp exec deploy/webapp -- id

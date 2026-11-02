@@ -124,13 +124,11 @@ GitHub ──webhook──> Jenkins ──kaniko──> 镜像仓库（ACR）
 ### 路径一：本地运行后端与前端
 
 ```powershell
-# 目录：E:\CICD\webapp（PowerShell；source 为 mysql 客户端命令）
 mysql -h 127.0.0.1 -u root -p -e "CREATE DATABASE IF NOT EXISTS authbase CHARACTER SET utf8mb4;"
 mysql -h 127.0.0.1 -u root -p authbase -e "source db.sql"
 ```
 
 ```powershell
-# 目录：E:\CICD\webapp（PowerShell）
 uv sync
 $env:FLASK_CONFIG = "development"
 $env:SECRET_KEY = "dev-only-replace-me"
@@ -140,7 +138,6 @@ uv run python start.py
 ```
 
 ```powershell
-# 目录：E:\CICD\webapp\ui（PowerShell）
 npm install --registry=https://registry.npmmirror.com
 npm run dev
 ```
@@ -148,7 +145,6 @@ npm run dev
 浏览器访问 <http://localhost>。**种子数据不包含可用密码**（`db.sql` 中 `admin` 的密码哈希已置为无效值），首次启动前必须生成管理员密码：
 
 ```powershell
-# 目录：E:\CICD\webapp（PowerShell）
 python scripts/reset_password.py --username admin
 # 输出示例：已重置用户 admin 的密码：Xk9#mP2vQ7...
 ```
@@ -158,7 +154,6 @@ python scripts/reset_password.py --username admin
 ### 路径二：Docker 构建并运行
 
 ```powershell
-# 目录：E:\CICD\webapp（PowerShell）
 docker build -f dockerfile -t webapp:local .
 docker run --rm -p 5000:5000 `
   -e FLASK_CONFIG=production `
@@ -179,7 +174,6 @@ curl.exe -fsS http://127.0.0.1:5000/health/live
 先按 [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) 创建 Secret 并初始化数据库，再执行：
 
 ```powershell
-# 目录：E:\CICD（PowerShell）
 kubectl apply -f deploy/k8s/
 kubectl -n webapp rollout status deployment/webapp --timeout=180s
 kubectl -n webapp port-forward svc/webapp 8080:80
@@ -193,7 +187,6 @@ kubectl -n webapp exec deploy/webapp -- python scripts/reset_password.py --usern
 同一套资源也提供了 Helm Chart，多环境发布时更合适：
 
 ```powershell
-# 目录：E:\CICD（PowerShell）
 helm upgrade --install webapp deploy/helm/webapp -n webapp --create-namespace `
   --set image.tag="$(git rev-parse --short HEAD)" --set ingress.host="app.example.com"
 ```
@@ -218,7 +211,6 @@ swr.cn-north-4.myhuaweicloud.com/ddn-k8s/<原始仓库>/<镜像>:<tag>
 查询镜像地址：
 
 ```powershell
-# 目录：E:\CICD\webapp（PowerShell）
 python docker/mirror.py python:3.11 node:18 ubuntu:20.04
 python docker/mirror.py ghcr.io/containerd/nerdctl:latest --platform linux/arm64 --json
 ```
