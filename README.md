@@ -17,6 +17,22 @@
 - 当前构建绑定节点，使用 privileged sidecar 和宿主机 containerd socket，仅适合可信实验代码。
 - NFS/Gitea 同机属于单点依赖；三节点不等于控制平面或存储已实现高可用。
 
+## 应用界面
+
+Flask + Vue 权限管理系统，覆盖登录、用户 / 角色 / 机构管理与审计日志。以下截图来自本项目的运行环境，数据为演示数据。
+
+| 首页概览 | 登录页 |
+| --- | --- |
+| <img src="docs/images/app/02-dashboard.png" width="480" alt="应用首页"/> | <img src="docs/images/app/01-login.png" width="480" alt="应用登录页"/> |
+
+| 用户管理 | 角色管理 |
+| --- | --- |
+| <img src="docs/images/app/03-users.png" width="480" alt="用户管理"/> | <img src="docs/images/app/04-roles.png" width="480" alt="角色管理"/> |
+
+| 操作日志 | 登录历史 |
+| --- | --- |
+| <img src="docs/images/app/05-operation-log.png" width="480" alt="操作日志"/> | <img src="docs/images/app/06-login-history.png" width="480" alt="登录历史"/> |
+
 ## 能力状态
 
 | 能力 | 当前状态 | 依据 |
