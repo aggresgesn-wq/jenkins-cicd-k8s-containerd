@@ -20,8 +20,17 @@ os.environ.setdefault("SECRET_KEY", "testing-secret")
 from app import create_app, db  # noqa: E402
 from app.models import Config, Resource, Role, User  # noqa: E402
 from app.routes.user import generate_salt, hash_password  # noqa: E402
+from app.security import login_throttle  # noqa: E402
 
 PASSWORD = "Passw0rd!"
+
+
+@pytest.fixture(autouse=True)
+def _reset_login_throttle():
+    """登录限流是进程级状态，用例之间必须清零，否则后跑的用例会被 429 误伤。"""
+    login_throttle.reset_all()
+    yield
+    login_throttle.reset_all()
 
 
 def load_routes() -> None:

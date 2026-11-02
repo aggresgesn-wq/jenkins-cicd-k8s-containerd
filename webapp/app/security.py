@@ -263,6 +263,12 @@ class LoginThrottle:
             self._failures.pop(key, None)
             self._locked_until.pop(key, None)
 
+    def reset_all(self) -> None:
+        """清空全部计数（测试之间隔离限流状态）。"""
+        with self._lock:
+            self._failures.clear()
+            self._locked_until.clear()
+
 
 login_throttle = LoginThrottle()
 
