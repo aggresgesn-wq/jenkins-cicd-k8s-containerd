@@ -1,6 +1,6 @@
 """登录、会话与登录限流。"""
 
-from conftest import PASSWORD, csrf_headers, login
+from tests.conftest import PASSWORD, csrf_headers, login
 
 
 def test_anonymous_request_gets_401(client):

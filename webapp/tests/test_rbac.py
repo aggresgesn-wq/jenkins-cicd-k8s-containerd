@@ -1,6 +1,6 @@
 """权限矩阵：普通用户调用管理接口必须 403，管理员只能做被授权的事。"""
 
-from conftest import auth_client
+from tests.conftest import auth_client
 
 
 def test_readonly_cannot_list_users(client):

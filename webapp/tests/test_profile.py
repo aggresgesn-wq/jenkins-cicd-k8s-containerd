@@ -3,7 +3,7 @@
 import io
 
 import app.routes.user as user_module
-from conftest import auth_client
+from tests.conftest import auth_client
 
 
 def test_profile_update_cannot_modify_other_user(client, app):
