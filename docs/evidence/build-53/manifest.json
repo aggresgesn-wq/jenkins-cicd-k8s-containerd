@@ -1,0 +1,25 @@
+{
+  "build": 53,
+  "date": "2026-11-02",
+  "source": "user supplied console text and screenshot",
+  "git_commit": "caa95a0eb76b2046eb9ed2acdbae54133971133f",
+  "files": {
+    "Jenkinsfile": "3673e5b426044b249f63b306adb537c1e389e3426f166305d358f3354ed65560",
+    "dockerfile": "5a245973ef3e87b0bd131c818aeb82dc042dcaf02e8d3100828ab9413c193e82"
+  },
+  "console_source_sha256": "4f9da5f60e166133acf270c7cb6d82c7fc53566a5af871fbf845cf648f63c01a",
+  "screenshot_sha256": "fdbbab38302fb43467ba988de1af9005dac67779d88d16c2ef0d70f583b3220e",
+  "verified": [
+    "SCM checkout from Gitea",
+    "dependency installation",
+    "Vue build",
+    "image build and local containerd import",
+    "Jenkins SUCCESS"
+  ],
+  "not_verified": [
+    "registry push",
+    "Kubernetes deployment",
+    "application readiness",
+    "backup restore"
+  ]
+}

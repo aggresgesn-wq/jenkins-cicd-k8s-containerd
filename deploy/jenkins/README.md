@@ -1,6 +1,8 @@
+> 状态更新（2026-11-02）：本文描述加固候选方案，未由 #53 执行。当前实跑基线为 webapp/Jenkinsfile（Gitea + nerdctl/BuildKit）；参见根目录 README 和 docs/evidence/build-53/。
+
 # Jenkins 安装与配置
 
-本目录提供 Jenkins Controller 的 Helm values 与落地说明，配合 `webapp/Jenkinsfile` 与 `deploy/k8s/jenkins-rbac.yaml` 使用。
+本目录提供 Jenkins Controller 的 Helm values 与落地说明，配合 `ci/Jenkinsfile.hardened` 与 `deploy/k8s/jenkins-rbac.yaml` 使用。
 
 > 界面截图与逐项配置对照见 [docs/JENKINS-UI.md](../../docs/JENKINS-UI.md)（登录、新建流水线、SCM 配置、插件管理、历史构建对比）。
 
@@ -77,7 +79,7 @@ sudo cat /var/lib/jenkins/secrets/initialAdminPassword
 | Pod Labels | `jenkins=slave` |
 | Service Account | `jenkins-deployer`（见 `deploy/k8s/jenkins-rbac.yaml`） |
 
-构建 Pod 的容器（python / node / kaniko / kubectl）由 `webapp/Jenkinsfile` 内嵌的 Pod 模板定义，**不使用 privileged、不挂载 containerd.sock**。
+构建 Pod 的容器（python / node / Rootless BuildKit / kubectl）由 `ci/Jenkinsfile.hardened` 内嵌的 Pod 模板定义，**不使用 privileged、不挂载 containerd.sock**。
 
 部署权限：在集群中应用 RBAC 清单，让构建 Pod 只能滚动更新 `webapp` 命名空间的 Deployment：
 
@@ -108,7 +110,7 @@ kubectl apply -f deploy/k8s/jenkins-rbac.yaml
 - Secret：与 `github-webhook-secret` 一致
 - Events：*Just the push event*
 
-Job 触发勾选 *GitHub hook trigger for GITScm polling*，Job 类型为 *Pipeline script from SCM*，Script Path 为 `webapp/Jenkinsfile`。
+Job 触发勾选 *GitHub hook trigger for GITScm polling*，Job 类型为 *Pipeline script from SCM*，Script Path 为 `ci/Jenkinsfile.hardened`。
 
 更完整的步骤（Token 权限、提交状态、排障）见 [docs/DEPLOYMENT.md](../../docs/DEPLOYMENT.md) 第 7 节。
 

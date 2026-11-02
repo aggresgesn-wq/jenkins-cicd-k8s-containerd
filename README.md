@@ -1,266 +1,76 @@
-# jenkins-cicd-k8s-containerd
+# 三节点 Kubernetes 云计算运维与 Jenkins 持续集成实践
 
-面向 Kubernetes 的 CI/CD 示例仓库：代码托管在 GitHub，Jenkins 在集群内动态创建构建 Pod，使用 kaniko 构建镜像，发布到 containerd 运行时集群。仓库内置一个可运行的 Flask + Vue 后台权限系统，用来演示从提交、测试、扫描、构建、推送到测试/生产发布与回滚的完整链路。
+基于 **一个三节点 Kubernetes 集群 + 一台 NFS/Gitea 虚拟机**的运维实验项目。Jenkins 动态创建 Agent Pod，从内网 Gitea 检出 Flask/Vue 应用，使用 nerdctl + BuildKit 构建镜像，由 containerd 管理节点容器与镜像。GitHub 保存项目代码、部署模板、运行证据和运维文档。
 
-![系统架构](docs/images/architecture.svg)
+**最近提供的真实运行记录：Jenkins webapp #53，2026-11-02，SUCCESS。** 已验证代码检出、依赖安装、前端打包、镜像构建与本地导入。该版本没有执行镜像推送或 Kubernetes 自动发布；“K8s一键部署”阶段仍是占位输出。
 
-> 架构图的可编辑源文件是 `docs/images/architecture.svg`（文本格式，可直接改），历史版本见 `docs/images/legacy/architecture-v1.png`。
+![Jenkins build 53 成功阶段视图](docs/images/jenkins/07-build-53-success.png)
 
-两点与实现保持一致：
+## 实际架构
 
-- 镜像构建当前使用 **kaniko**（无特权、不挂载 containerd.sock），图中同时用紫色虚线标出目标形态 Rootless BuildKit；
-- 发布使用 **Kustomize + kubectl**（`kubectl kustomize overlays/... | kubectl apply`），尚未引入 Argo CD/Flux，因此不宣称 GitOps。
+![实际环境与交付边界](docs/images/architecture.svg)
 
-### 设计愿景（早期规划稿）
+- Kubernetes：3 个节点；日志确认构建 Pod 调度到 `k8s-master`，其余节点名称、资源和角色待填写资产清单。
+- 独立 VM：承载 Gitea 与 NFS；具体哪些 PVC 使用 NFS 需要现场清单确认。
+- Gitea：#53 的实际代码来源；GitHub 展示仓库与 Gitea 应用仓库布局不同，没有自动同步的运行证据。
+- Jenkins：动态 Agent 包含 python、nerdctl、buildkitd、jnlp；#53 位于 `jenkins-agent` 命名空间。
+- 当前构建绑定节点，使用 privileged sidecar 和宿主机 containerd socket，仅适合可信实验代码。
+- NFS/Gitea 同机属于单点依赖；三节点不等于控制平面或存储已实现高可用。
 
-<img src="docs/images/architecture-vision.png" width="980" alt="架构设计愿景图"/>
+## 能力状态
 
-> 这是早期汇报用的视觉稿，**与当前实现存在差异**，请以上方架构图与 `webapp/Jenkinsfile` 为准：
->
-> - 代码托管：图中为 Gitea，当前为 **GitHub**（Gitea 安装见 [deploy/gitea/README.md](deploy/gitea/README.md)）；
-> - 镜像构建：图中为 Rootless BuildKit，当前为 **Kaniko**；
-> - 发布方式：图中为 Helm Upgrade/GitOps，当前为 **Kustomize + kubectl apply**；
-> - 图中“镜像仓库 Namespace”“containerd 位于 WebApp Namespace”属于简化表达，实际镜像仓库在集群外，containerd 是节点级运行时。
+| 能力 | 当前状态 | 依据 |
+| --- | --- | --- |
+| Gitea → Jenkins 动态 Agent | 已运行 | #53 控制台 |
+| 依赖安装、Vue 打包、镜像构建 | 已运行，有构建告警 | Loaded image 与 SUCCESS |
+| NFS/Gitea VM、三节点集群 | 用户确认的环境 | [资产模板](ops/inventory.example.yaml)，待补巡检报告 |
+| 镜像推送、K8s 发布、健康检查 | #53 未执行 | 部署阶段只有 echo |
+| Rootless、扫描、digest 发布与恢复 | 加固候选，未集群验收 | [候选流水线](ci/Jenkinsfile.hardened) |
+| Kustomize/Helm、监控告警 | 已有模板，部署待验证 | [deploy/](deploy/) |
+| 节点/Pod/PVC 巡检 | 已编写，有本地回归测试 | [巡检工具](ops/inspect_cluster.py) |
+| 备份恢复、故障演练 | 手册已编写，待执行 | [运维手册](docs/OPERATIONS.md) |
 
-- 仓库地址：<https://github.com/aggresgesn-wq/jenkins-cicd-k8s-containerd>
-- 应用目录：[webapp/](webapp)
-- 生产启动方式：gunicorn，入口 `webapp/wsgi.py:app`，容器端口 `5000`
+## 文件入口
 
-## 界面速览
-
-| Jenkins 首页（webapp #48 成功） | 流水线 SCM 配置（① 仓库地址、② 凭据） |
+| 文件 | 用途 |
 | --- | --- |
-| <img src="docs/images/jenkins/02-dashboard.png" width="480" alt="Jenkins 首页"/> | <img src="docs/images/jenkins/04-pipeline-scm.png" width="480" alt="流水线 SCM 配置"/> |
+| [webapp/Jenkinsfile](webapp/Jenkinsfile) | 本次上传的 #53 基线原文件，按字节保留 |
+| [webapp/dockerfile](webapp/dockerfile) | 本次上传的多阶段构建原文件，按字节保留 |
+| [ci/Jenkinsfile.lab](ci/Jenkinsfile.lab) | 基于原文件适配 GitHub 的 webapp/ 目录，仅构建 |
+| [ci/Jenkinsfile.hardened](ci/Jenkinsfile.hardened) | 可选加固候选，须独立 Job 验收 |
+| [webapp/dockerfile.production](webapp/dockerfile.production) | 候选使用的 Gunicorn、非 root 镜像 |
+| [#53 证据](docs/evidence/build-53/README.md) | commit、文件哈希、日志及证明边界 |
+| [架构说明](docs/ARCHITECTURE.md) | 拓扑、组件职责与风险 |
+| [运维手册](docs/OPERATIONS.md) | 巡检、排障、备份恢复与演练 |
 
-| Jenkins 登录页 | 新建任务（选择「流水线」） |
-| --- | --- |
-| <img src="docs/images/jenkins/01-login.png" width="300" alt="Jenkins 登录页"/> | <img src="docs/images/jenkins/03-new-pipeline-job.png" width="640" alt="新建流水线任务"/> |
+## 复现入口
 
-当前 11 阶段流水线（按 `webapp/Jenkinsfile` 生成，示意非截图）：
+#53 的 Gitea 应用仓库将 Jenkinsfile、dockerfile、pyproject.toml 放在根目录；本仓库放在 webapp/ 下。**修改 Script Path 不会自动改变工作目录。** 本次只导入两个文件与日志，Gitea commit `caa95a0…` 的整套源码没有同步到这里，不能把 #53 当作当前 GitHub HEAD 的构建证明。
 
-<img src="docs/images/jenkins/05-current-build-stages.svg" width="920" alt="当前 11 阶段流水线"/>
+保留现有 Gitea Job 时使用原始文件。从 GitHub 新建实验 Job 时，配置 Pipeline script from SCM、当前仓库、main 分支，Script Path 选择 `ci/Jenkinsfile.lab`。它会进入 webapp/ 后构建，首次执行仍需验证。默认原始 dockerfile 使用 `python start.py`，与当前 GitHub 应用的生产运行要求不同；发布前使用并验证 production 镜像。
 
-插件管理、改造前后的历史对比等其余截图见 [docs/JENKINS-UI.md](docs/JENKINS-UI.md)。
+原文件固定 IP 是当时网络排障的临时措施，不能保证长期有效；先检查节点 DNS、CoreDNS 与代理配置，见运维手册。
 
-## 应用界面（部署后）
-
-| 登录页 | 首页（后台管理框架） |
-| --- | --- |
-| <img src="docs/images/app/01-login.png" width="480" alt="应用登录页"/> | <img src="docs/images/app/02-dashboard.png" width="480" alt="应用首页"/> |
-
-## 项目定位
-
-| 维度 | 说明 |
-| --- | --- |
-| 目标 | 一套可落地、可照着复现的 Jenkins + GitHub + K8s CI/CD 参考实现 |
-| 示例应用 | Flask 2.2 + Vue 2 后台权限系统，RBAC、验证码、操作日志、健康检查 |
-| 构建 | Jenkins Pipeline + kaniko，不依赖 Docker daemon、privileged 容器或宿主机 containerd socket |
-| 部署 | `deploy/k8s` 清单与 overlays，namespace 为 `webapp-staging`（测试）/ `webapp`（生产） |
-| 运行时 | containerd + gunicorn，健康检查 `/health/live`、`/health/ready` |
-| 安全基线 | Session + 双提交 Cookie CSRF、RBAC、非 root/只读根文件系统，详见 [SECURITY.md](SECURITY.md) |
-
-## 架构总览
-
-```text
-GitHub ──webhook──> Jenkins ──kaniko──> 镜像仓库（ACR）
-                      │                      │
-                      └── kubectl/清单 ──> K8s（containerd）──> gunicorn ──> MySQL 8
+```bash
+# 只读巡检：不读取 Secret/日志，不修改集群
+python ops/inspect_cluster.py --context YOUR_LAB_CONTEXT --expected-nodes 3 --output reports/cluster-health.json
+# 本地测试
+python -m unittest discover -s ops/tests -v
+python -m unittest discover -s ci/tests -v
 ```
 
-目录结构：
+巡检退出码：0 无 error 项，1 发现异常，2 采集失败；warning 仍需检查。发布报告前脱敏资源名称。发布逻辑测试需要 Bash，Windows 设置 BASH_EXE 为 Git Bash 路径。GitHub Actions 配置存在不代表远端已运行通过。
 
-```text
-.
-├── README.md
-├── SECURITY.md
-├── CONTRIBUTING.md
-├── docs/
-│   ├── ARCHITECTURE.md        # 组件、请求链路、认证时序、数据模型、CI/CD
-│   ├── DEPLOYMENT.md          # 环境准备、Secret、数据库、构建、部署、回滚、排障
-│   ├── JENKINS-UI.md          # Jenkins 界面截图与配置对照
-│   ├── IMAGES.md              # 镜像清单（统一走镜像同步站）
-│   ├── BRANCH-PROTECTION.md   # 分支保护与合并门禁
-│   ├── SCOPE.md               # 功能范围与技术债
-│   └── images/
-│       ├── architecture.svg   # 架构图（可编辑源文件）
-│       ├── jenkins/           # Jenkins 界面截图与阶段示意
-│       ├── app/               # 应用运行截图（登录页、首页）
-│       └── legacy/            # 历史图片
-├── deploy/
-│   ├── k8s/                   # 原生清单 + staging/production overlay
-│   ├── helm/webapp/           # 同一套资源的 Helm Chart（多环境发布）
-│   ├── jenkins/               # Jenkins Helm values、JCasC、Job DSL
-│   ├── containerd/            # containerd 安装/配置/校验脚本
-│   ├── gitea/                 # Gitea 在 Linux 上的安装（可选自建）
-│   ├── monitoring/            # Prometheus 抓取配置、告警规则、Grafana 仪表盘
-│   └── github/                # 分支保护与仓库改名脚本
-└── webapp/
-    ├── app/                   # Flask：models/routes/templates/security/metrics
-    ├── ui/                    # Vue 2.7 + Element UI 前端（含 package-lock.json）
-    ├── docker/                # mirror.py（国内镜像地址查询工具）
-    ├── scripts/               # reset_password.py、check_default_passwords.py
-    ├── tests/                 # 后端测试（pytest）
-    ├── db.sql                 # 初始化表结构与种子数据
-    ├── dockerfile             # 多阶段构建：Node 构建前端 + Python 运行后端
-    ├── Jenkinsfile            # 流水线定义
-    ├── pyproject.toml         # Python 依赖（uv）
-    ├── wsgi.py                # gunicorn 入口
-    └── start.py               # 本地开发入口
-```
+## 下一阶段验收
 
-技术栈：
+1. 在新 Job 验证目录适配与镜像启动，保留 commit、构建号和实际耗时。
+2. 验证 registry push/pull，再验证 staging rollout、Service/Ingress 与 readiness。
+3. 演练错误镜像恢复、PVC/NFS 故障及 Gitea 备份恢复，记录发现与恢复时间。
+4. 隔离构建和部署权限，迁移专用构建节点，去除临时 DNS IP 和宿主机 socket 依赖。
+5. 在检查稳定运行后启用分支保护，再完善签名、准入及依赖升级。
 
-| 层 | 技术 |
-| --- | --- |
-| 后端 | Flask 2.2、Flask-Login、Flask-SQLAlchemy、Flask-Simple-Captcha、MySQL 8 |
-| 前端 | Vue 2.7、Element UI、Vuex、Vue Router、Axios 1.x |
-| 运行 | gunicorn（`wsgi.py:app`），容器端口 5000，`/metrics` 暴露 Prometheus 指标 |
-| 交付 | Jenkins + kaniko、GitHub（Webhook + Commit Status）、Kubernetes + containerd、Helm/Kustomize |
+详见 [加固候选验收](docs/PIPELINE-HARDENING.md)。当前不声称生产级、多集群、高可用或完整 CD 已验收。
 
-## 快速开始
+## 开源说明
 
-以下命令默认在 Windows PowerShell 7 中执行。开始前请准备：Python 3.11 + uv、Node.js 18 + npm、MySQL 8.0、Docker（可选）、kubectl 与可用的 K8s 集群。
-
-### 路径一：本地运行后端与前端
-
-```powershell
-mysql -h 127.0.0.1 -u root -p -e "CREATE DATABASE IF NOT EXISTS authbase CHARACTER SET utf8mb4;"
-mysql -h 127.0.0.1 -u root -p authbase -e "source db.sql"
-```
-
-```powershell
-uv sync
-$env:FLASK_CONFIG = "development"
-$env:SECRET_KEY = "dev-only-replace-me"
-$env:DATABASE_URI = "mysql+mysqlconnector://root:REPLACE_ME@127.0.0.1:3306/authbase?charset=utf8mb4"
-$env:CAPTCHA_SECRET_KEY = "dev-only-replace-me"
-uv run python start.py
-```
-
-```powershell
-npm install --registry=https://registry.npmmirror.com
-npm run dev
-```
-
-浏览器访问 <http://localhost>。**种子数据不包含可用密码**（`db.sql` 中 `admin` 的密码哈希已置为无效值），首次启动前必须生成管理员密码：
-
-```powershell
-python scripts/reset_password.py --username admin
-# 输出示例：已重置用户 admin 的密码：Xk9#mP2vQ7...
-```
-
-开发服务器默认监听 80 端口，并将 API 请求代理到 `127.0.0.1:5000`；用上一步生成的密码登录，并立即在“个人中心”改密。存量环境可用 `python scripts/check_default_passwords.py` 自检是否仍存在弱口令。
-
-### 路径二：Docker 构建并运行
-
-```powershell
-docker build -f dockerfile -t webapp:local .
-docker run --rm -p 5000:5000 `
-  -e FLASK_CONFIG=production `
-  -e SECRET_KEY="replace-with-random-32-bytes" `
-  -e DATABASE_URI="mysql+mysqlconnector://webapp:REPLACE_ME@host.docker.internal:3306/authbase?charset=utf8mb4" `
-  -e CAPTCHA_SECRET_KEY="replace-with-random-32-bytes" `
-  webapp:local
-
-# 首次部署：在容器内生成管理员密码（或对已有数据库执行）
-docker run --rm -e DATABASE_URI="mysql+mysqlconnector://webapp:REPLACE_ME@host.docker.internal:3306/authbase?charset=utf8mb4" `
-  webapp:local python scripts/reset_password.py --username admin
-
-curl.exe -fsS http://127.0.0.1:5000/health/live
-```
-
-### 路径三：部署到 Kubernetes
-
-先按 [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) 创建 Secret 并初始化数据库，再执行：
-
-```powershell
-kubectl apply -f deploy/k8s/
-kubectl -n webapp rollout status deployment/webapp --timeout=180s
-kubectl -n webapp port-forward svc/webapp 8080:80
-
-# 首次初始化管理员密码（种子数据不含可用密码）
-kubectl -n webapp exec deploy/webapp -- python scripts/reset_password.py --username admin
-```
-
-浏览器访问 <http://localhost:8080>；生产环境通过 Ingress 域名访问。
-
-同一套资源也提供了 Helm Chart，多环境发布时更合适：
-
-```powershell
-helm upgrade --install webapp deploy/helm/webapp -n webapp --create-namespace `
-  --set image.tag="$(git rev-parse --short HEAD)" --set ingress.host="app.example.com"
-```
-
-监控与告警见 [deploy/monitoring/README.md](deploy/monitoring/README.md)，Jenkins 安装与配置见 [deploy/jenkins/README.md](deploy/jenkins/README.md)。
-
-## 镜像加速说明
-
-基础镜像统一取自[渡渡鸟镜像同步站](https://docker.aityp.com)，同步到华为云 SWR，国内网络可直接拉取，无需额外配置 Docker 加速器。地址规则：
-
-```text
-swr.cn-north-4.myhuaweicloud.com/ddn-k8s/<原始仓库>/<镜像>:<tag>
-```
-
-| 原始镜像 | 国内可用地址 |
-| --- | --- |
-| `python:3.11` | `swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/python:3.11` |
-| `node:18` | `swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/node:18` |
-| `ubuntu:20.04` | `swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/ubuntu:20.04` |
-| `moby/buildkit:v0.31.1` | `swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/moby/buildkit:v0.31.1` |
-
-查询镜像地址：
-
-```powershell
-python docker/mirror.py python:3.11 node:18 ubuntu:20.04
-python docker/mirror.py ghcr.io/containerd/nerdctl:latest --platform linux/arm64 --json
-```
-
-未同步的镜像可到 <https://docker.aityp.com/manage/add> 提交同步请求。`webapp/dockerfile` 的 `UI_IMAGE`、`BASE_IMAGE` 已默认使用上述国内地址，需要官方镜像时用 `--build-arg` 覆盖。
-
-## 安全基线摘要
-
-- **认证**：基于 Flask Session 的 Cookie 会话，`HttpOnly` + `SameSite=Lax`，生产环境启用 `Secure`。
-- **CSRF**：登录成功后下发 `XSRF-TOKEN` Cookie，前端所有写请求携带 `X-XSRF-TOKEN` 头，服务端做双提交 Cookie 校验。
-- **授权**：RBAC（用户-角色-资源），角色 `ROLEKEY` 为 `superadmin` / `admin` / `readonly`，接口通过 `@permission('system:user:list')` 等权限码校验；未登录返回 HTTP 401，无权限返回 HTTP 403。
-- **密钥**：`SECRET_KEY`、`DATABASE_URI`、`CAPTCHA_SECRET_KEY` 等只通过环境变量注入，生产使用 K8s Secret 与 Jenkins Credentials，禁止入库。
-- **默认口令**：`db.sql` 种子账号不含可用密码，首次启动前必须运行 `scripts/reset_password.py`；`scripts/check_default_passwords.py` 可巡检存量环境。
-- **容器**：非 root 运行、只读根文件系统、无 privileged、不挂载宿主机 containerd socket。
-- **其他**：登录限流与锁定、验证码、上传类型/大小校验、依赖与镜像安全扫描、审计日志脱敏（密码/Token 不落库）。
-
-完整控制清单与上线检查表见 [SECURITY.md](SECURITY.md)。
-
-## 文档索引
-
-| 文档 | 内容 |
-| --- | --- |
-| [README.md](README.md) | 项目定位、快速开始、镜像加速、安全摘要 |
-| [webapp/README.md](webapp/README.md) | 应用功能、本地开发、环境变量、Docker 构建、常见问题 |
-| [SECURITY.md](SECURITY.md) | 漏洞上报、密钥管理、安全控制清单、部署检查清单 |
-| [CONTRIBUTING.md](CONTRIBUTING.md) | 分支与提交规范、代码风格、测试要求、PR 检查清单 |
-| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | 组件图、请求链路、认证时序、数据模型、CI/CD 流程 |
-| [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) | 环境准备、Secret、数据库、构建、K8s/Helm 部署、Jenkins/GitHub 接入、备份恢复、排障 |
-| [deploy/jenkins/README.md](deploy/jenkins/README.md) | Jenkins 安装（Helm/Docker/包管理）、插件源、K8s Cloud、凭据、备份升级 |
-| [deploy/gitea/README.md](deploy/gitea/README.md) | Gitea 在 Linux 上的安装（二进制+systemd / Docker / Helm）、初始化、反代、Jenkins 对接、备份升级 |
-| [docs/IMAGES.md](docs/IMAGES.md) | 镜像清单：流水线、构建、部署与运维组件统一走渡渡鸟镜像站的地址与校验方式 |
-| [docs/BRANCH-PROTECTION.md](docs/BRANCH-PROTECTION.md) | main 分支保护、`jenkins/ci` 必需检查与生产发布限制 |
-| [docs/JENKINS-UI.md](docs/JENKINS-UI.md) | Jenkins 界面速览（登录、新建流水线、SCM 配置、插件管理、改造前后阶段对比） |
-| [deploy/containerd/README.md](deploy/containerd/README.md) | containerd 安装脚本、`config.toml`（SystemdCgroup/CRI）、kubelet cgroup 配置与节点校验 |
-| [deploy/jenkins/jcasc/jenkins.yaml](deploy/jenkins/jcasc/jenkins.yaml) | Jenkins JCasC 示例（Kubernetes Cloud、PATH、location）与 Job DSL |
-| [deploy/monitoring/README.md](deploy/monitoring/README.md) | Prometheus 抓取、告警规则、Grafana 仪表盘、日志与审计脱敏 |
-| [deploy/helm/webapp/README.md](deploy/helm/webapp/README.md) | Helm Chart 参数、安装升级与回滚 |
-| [docs/SCOPE.md](docs/SCOPE.md) | 功能范围、若依模板遗留模块、技术债与清理计划 |
-
-## 许可证与来源声明
-
-- `webapp/` 基于上游 **AuthBase** 项目（<https://gitee.com/zhujf21st/authbase>）二次开发，沿用其 **Apache License 2.0**，许可证全文见 [webapp/LICENSE](webapp/LICENSE)。
-- Jenkins、GitHub、Kubernetes、kaniko、渡渡鸟镜像同步站等第三方组件与镜像分别遵循其各自许可证，使用前请自行确认。
-- 本仓库的 CI/CD 配置与文档为示例性质，不附带任何形式的担保；用于生产前请结合组织安全规范进行评估。
-
-## Roadmap
-
-以下事项尚未完成，欢迎通过 Issue / PR 参与：
-
-- [ ] **前端框架升级**：Vue 2 已进入 EOL，当前停留在 2.7.16（2.x 最后一个维护版本），计划迁移到 Vue 3 + Vite + Element Plus。
-- [ ] **数据库迁移**：引入 Flask-Migrate / Alembic，取代手工导入 `db.sql` 的初始化方式，并纳入 CI 校验。
-- [ ] **可观测性增强**：已提供 `/metrics`、告警规则与 Grafana 面板；后续补充 OpenTelemetry 链路追踪与日志集中化（Loki/ELK）。
-- [ ] **供应链安全**：镜像 SBOM、签名（cosign）与部署准入校验。
+应用基于现有 Flask/Vue 权限系统演进，保留原作者和第三方许可证，见 [LICENSE](LICENSE)、[贡献指南](CONTRIBUTING.md)、[安全说明](SECURITY.md)。

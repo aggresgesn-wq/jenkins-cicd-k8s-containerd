@@ -1,3 +1,5 @@
+> 状态更新（2026-11-02）：本文描述加固候选方案，未由 #53 执行。当前实跑基线为 webapp/Jenkinsfile（Gitea + nerdctl/BuildKit）；参见根目录 README 和 docs/evidence/build-53/。
+
 # 部署指南
 
 本文覆盖从零部署到 Kubernetes 的完整流程：环境准备、Secret、数据库、镜像构建、部署、健康检查、回滚，以及 Jenkins 与 GitHub 的接入。命令默认在 Windows PowerShell 7 中执行，标注 Git Bash 的除外。
@@ -7,7 +9,7 @@
 - Ingress Controller（示例使用 ingress-nginx），并准备可解析的域名。
 - MySQL 8.0+（托管实例或容器），字符集 `utf8mb4`。
 - 可推送的镜像仓库（示例为阿里云 ACR），以及拉取镜像用的凭据。
-- Jenkins（集群内或集群外均可），用于运行 `webapp/Jenkinsfile`。
+- Jenkins（集群内或集群外均可），用于运行 `ci/Jenkinsfile.hardened`。
 
 ```powershell
 kubectl get nodes
@@ -82,7 +84,7 @@ mysql -h "$DB_HOST" -u "$DB_ADMIN" -p authbase < webapp/db.sql
 ## 4. 构建镜像
 ```powershell
 $env:ACR_REGISTRY = "crpi-m67ogm8wgcr0rh38.cn-hangzhou.personal.cr.aliyuncs.com"; $env:ACR_NAMESPACE = "<acr-namespace>"; $env:IMAGE_TAG = "local"
-docker build -f webapp/dockerfile `
+docker build -f webapp/dockerfile.production `
   --build-arg UI_IMAGE="swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/node:18" `
   --build-arg BASE_IMAGE="swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/python:3.11" `
   -t "$env:ACR_REGISTRY/$env:ACR_NAMESPACE/webapp:$env:IMAGE_TAG" `
@@ -97,15 +99,16 @@ docker push "$env:ACR_REGISTRY/$env:ACR_NAMESPACE/webapp:$env:IMAGE_TAG"
 
 `ARG` 只在构建期生效，不要用它传递密钥；密钥会进入镜像历史。运行期配置一律通过环境变量或 Secret 注入。
 
-CI 中使用 kaniko，不依赖 Docker daemon：
+CI 中使用 Rootless BuildKit，不依赖 Docker daemon：
 
 ```bash
-/kaniko/executor --context=/workspace/webapp --dockerfile=/workspace/webapp/dockerfile \
-  --destination="$FULL_IMG" \
-  --build-arg=UI_IMAGE="$UI_IMAGE" --build-arg=BASE_IMAGE="$BASE_IMAGE"
+buildctl-daemonless.sh build --frontend dockerfile.v0 \
+  --local context="$WORKSPACE/webapp" --local dockerfile="$WORKSPACE/webapp" \
+  --opt filename=dockerfile --output "type=image,name=$FULL_IMG,push=true" \
+  --metadata-file "$WORKSPACE/build-metadata.json"
 ```
 
-kaniko 使用 Jenkins 挂载的仓库凭据，不需要 privileged 容器，也不挂载宿主机 containerd socket；Rootless BuildKit 是等价替代方案，二者可互换。
+Rootless BuildKit 使用 Jenkins 注入的仓库凭据，不使用 privileged、不挂载宿主机 socket。它需要 user namespace 和专用构建安全策略，不能仅替换镜像就保证兼容；详见 [前置条件与验收](PIPELINE-HARDENING.md)。
 
 ## 5. 部署到 Kubernetes
 ```powershell
@@ -126,7 +129,7 @@ kubectl -n webapp-staging rollout status deployment/webapp --timeout=180s
 
 - 在 Ingress 中配置域名与 TLS Secret `webapp-tls`，并把 DNS 指向 Ingress Controller。
 - `/metrics` 已在 Ingress 层拒绝公网访问，只允许集群内 Prometheus 抓取；需要临时排查时用 `kubectl port-forward`。
-- Jenkins 流水线现在通过 `kubectl kustomize deploy/k8s/overlays/{staging,production}` 渲染整套配置后 `kubectl apply`，并用 `image@sha256:<digest>` 部署（digest 由 kaniko 输出），因此 ConfigMap、Ingress、HPA、PDB、NetworkPolicy 的变更也会随流水线发布。
+- Jenkins 流水线通过 `ci/release.sh` 渲染 overlay 后执行 diff/apply，并用 `image@sha256:<digest>` 部署（digest 由 BuildKit metadata 提取）。管理员须预先创建 Namespace；ConfigMap、Ingress、HPA、PDB、NetworkPolicy 的变更随发布应用，但自动恢复仅恢复应用镜像。
 - 如使用 Helm/GitOps，可用 `helm upgrade` 替代 `kubectl apply`；首次部署若因依赖顺序失败，确认 namespace、Secret、ConfigMap、PVC 已存在后重新 `kubectl apply -f deploy/k8s/`。
 
 ### 使用 Helm 部署（可选）
@@ -176,7 +179,7 @@ kubectl -n webapp rollout undo deployment/webapp --to-revision=2
 
 - Kubernetes URL 与 Namespace：集群内 `https://kubernetes.default.svc`，Namespace 为构建 Pod 所在命名空间（示例 `jenkins`）。
 - Credentials：有权创建 Pod 的 ServiceAccount 或 kubeconfig 凭据。
-- Jenkins URL 与 Pod Template：`https://jenkins.example.com` 供 JNLP 回连；容器包含 Python、Node、kaniko、kubectl，不要 privileged、不要挂载宿主机 containerd socket。
+- Jenkins URL 与 Pod Template：`https://jenkins.example.com` 供 JNLP 回连；容器包含 Python、Node、Rootless BuildKit、kubectl，不使用 privileged、不挂载宿主机 containerd socket。
 
 ### 7.2 凭据
 
@@ -189,7 +192,7 @@ kubectl -n webapp rollout undo deployment/webapp --to-revision=2
 | `github-webhook-secret` | Secret text | 校验 GitHub Webhook 签名（与仓库 Webhook Secret 一致） |
 | `kubeconfig` | Secret file | 集群外部署；集群内改用 ServiceAccount（见 `deploy/k8s/jenkins-rbac.yaml`） |
 
-凭据 ID 已被 `webapp/Jenkinsfile` 引用，改名时需同步修改。镜像仓库命名空间通过 Jenkins 全局环境变量 `ACR_NAMESPACE` 提供（未设置时回退为 `your-namespace`），不要把个人账号写进 Jenkinsfile。
+凭据 ID 已被 `ci/Jenkinsfile.hardened` 引用，改名时需同步修改。镜像仓库命名空间通过 Jenkins 全局环境变量 `ACR_NAMESPACE` 提供（未设置时回退为 `your-namespace`），不要把个人账号写进 Jenkinsfile。
 
 ### 7.3 创建 GitHub Token
 
@@ -212,7 +215,7 @@ Token 只用于两件事：回写提交状态、可选地读取仓库元数据�
 
 ### 7.5 提交状态反馈
 
-`webapp/Jenkinsfile` 会在流水线开始、成功、失败时调用 GitHub Status API，把结果写回对应 commit：
+`ci/Jenkinsfile.hardened` 会在流水线开始、成功、失败时调用 GitHub Status API，把结果写回对应 commit：
 
 ```bash
 POST https://api.github.com/repos/aggresgesn-wq/jenkins-cicd-k8s-containerd/statuses/$GIT_COMMIT
@@ -225,7 +228,7 @@ Authorization: token $GITHUB_TOKEN
 ### 7.6 Jenkins Job
 
 - 类型：*Pipeline script from SCM*，SCM 选 Git，仓库地址 `https://github.com/aggresgesn-wq/jenkins-cicd-k8s-containerd.git`，分支 `main`。
-- Script Path：`webapp/Jenkinsfile`。
+- Script Path：`ci/Jenkinsfile.hardened`。
 - 构建触发器：*GitHub hook trigger for GITScm polling*。
 - 生产阶段使用 `input` 人工批准并限制审批人；拒绝或超时不得继续部署。
 
@@ -236,7 +239,7 @@ Authorization: token $GITHUB_TOKEN
 切换到 Gitea 时注意：
 
 - Gitea 的 Webhook 事件头与 GitHub 不同，Jenkins 的 GitHub 插件 `/github-webhook/` 不一定能直接消费；优先使用 **Gitea 插件**（`/gitea-webhook/post`）或 **Generic Webhook Trigger**。
-- `webapp/Jenkinsfile` 中的 `githubStatus()` 调用 GitHub Status API；切换到 Gitea 后需改为 Gitea 的 Commit Status 接口，或删除该步骤（流水线会打印告警但继续执行）。
+- `ci/Jenkinsfile.hardened` 中的 `githubStatus()` 调用 GitHub Status API；切换到 Gitea 后需改为 Gitea 的 Commit Status 接口，或删除该步骤（流水线会打印告警但继续执行）。
 - 仓库地址、SSH 端口（默认 2222）与凭据需在 Jenkins Job 中同步修改。
 
 ## 8. 备份与恢复

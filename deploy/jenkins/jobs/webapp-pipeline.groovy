@@ -2,8 +2,8 @@
 //
 // 前置：Jenkins 安装 job-dsl 插件，并在 JCasC/系统设置中配置 Job DSL 种子任务，
 // 或使用 `jenkins-cli` 执行 `dsl`。替换 owner/repo 与凭据 ID 后再使用。
-pipelineJob('webapp-pipeline') {
-    description('webapp：GitHub → Jenkins → kaniko → ACR → K8s（staging/production）')
+pipelineJob('webapp-lab-build') {
+    description('webapp 实验构建：GitHub → Jenkins → nerdctl/BuildKit，仅构建，未部署')
     keepDependencies(false)
 
     definition {
@@ -17,7 +17,7 @@ pipelineJob('webapp-pipeline') {
                     branch('*/main')
                 }
             }
-            scriptPath('webapp/Jenkinsfile')
+            scriptPath('ci/Jenkinsfile.lab')
             lightweight(true)
         }
     }

@@ -1,452 +1,152 @@
 pipeline {
     agent {
         kubernetes {
-            // 构建节点不使用 privileged 容器，也不挂载宿主机 containerd socket；
-            // 镜像构建交给 kaniko（用户态执行，无需 docker daemon）。
             yaml """
 apiVersion: v1
 kind: Pod
 spec:
-  serviceAccountName: jenkins-deployer
-  securityContext:
-    runAsNonRoot: true
-    runAsUser: 1000
-    fsGroup: 1000
+  nodeSelector:
+    kubernetes.io/hostname: k8s-master
+  # 强制华为云源走 IPv4（Pod 内 DNS 优先返回 IPv6，无 IPv6 路由导致 TLS 握手超时）
+  hostAliases:
+  - ip: "120.46.247.83"
+    hostnames:
+    - swr.cn-north-4.myhuaweicloud.com
+  # 阿里云 PyPI 镜像直连 IP：Pod 内 DNS 被上游污染，解析到 198.18.0.55 假地址并返回 403，需绕过
+  - ip: "183.201.235.209"
+    hostnames:
+    - mirrors.aliyun.com
+  # 华为云 OBS 存储后端：镜像层实际下载走这个域名，同样被 DNS 污染
+  - ip: "122.9.31.195"
+    hostnames:
+    - op-svc-swr-b051-10-38-19-62-3az.obs.cn-north-4.myhuaweicloud.com
+  - ip: "49.4.112.113"
+    hostnames:
+    - obs.cn-north-4.myhuaweicloud.com
   containers:
   - name: python
     image: swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/python:3.11
     command: ['cat']
     tty: true
     resources:
-      limits: {cpu: "1", memory: "1Gi"}
-      requests: {cpu: "200m", memory: "256Mi"}
-  - name: node
-    image: swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/node:18
+      limits:
+        cpu: "500m"
+        memory: "512Mi"
+      requests:
+        cpu: "100m"
+        memory: "256Mi"
+  - name: nerdctl
+    image: swr.cn-north-4.myhuaweicloud.com/ddn-k8s/ghcr.io/containerd/nerdctl:latest
+    imagePullPolicy: IfNotPresent
     command: ['cat']
     tty: true
+    privileged: true
+    volumeMounts:
+    - mountPath: /run/containerd/containerd.sock
+      name: containerd-sock
+    - mountPath: /run/buildkit
+      name: buildkit-sock
     resources:
-      limits: {cpu: "1", memory: "2Gi"}
-      requests: {cpu: "200m", memory: "512Mi"}
-  - name: kaniko
-    image: swr.cn-north-4.myhuaweicloud.com/ddn-k8s/gcr.io/kaniko-project/executor:v1.23.2-debug
-    command: ['/busybox/cat']
-    tty: true
+      limits:
+        cpu: "500m"
+        memory: "512Mi"
+      requests:
+        cpu: "100m"
+        memory: "256Mi"
+  # buildkitd sidecar：nerdctl build 必需（OCI worker 模式，自带快照存储，不依赖宿主机 containerd 的 /var/lib/containerd）
+  - name: buildkitd
+    image: swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/moby/buildkit:v0.31.1
+    imagePullPolicy: IfNotPresent
+    args:
+    - --oci-worker=true
+    - --containerd-worker=false
+    - --oci-worker-net=host
+    securityContext:
+      privileged: true
+    volumeMounts:
+    - mountPath: /run/buildkit
+      name: buildkit-sock
+  # JNLP 代理容器（必须显式定义，镜像用华为云源，避免 Docker Hub 拉取失败）
+  - name: jnlp
+    image: swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/jenkins/inbound-agent:3283.v92c105e0f819-9-jdk17
+    imagePullPolicy: IfNotPresent
     resources:
-      limits: {cpu: "1", memory: "2Gi"}
-      requests: {cpu: "200m", memory: "512Mi"}
-  - name: kubectl
-    image: swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/bitnami/kubectl:1.29.3-debian-12-r3
-    command: ['cat']
-    tty: true
-    resources:
-      limits: {cpu: "500m", memory: "512Mi"}
-      requests: {cpu: "100m", memory: "128Mi"}
-  - name: helm
-    image: swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/alpine/helm:3.20.2
-    command: ['/bin/sh', '-c', 'sleep infinity']
-    tty: true
-    resources:
-      limits: {cpu: "200m", memory: "256Mi"}
-      requests: {cpu: "50m", memory: "64Mi"}
-  - name: kubeconform
-    image: swr.cn-north-4.myhuaweicloud.com/ddn-k8s/ghcr.io/yannh/kubeconform:latest
-    command: ['/bin/sh', '-c', 'sleep infinity']
-    tty: true
-    resources:
-      limits: {cpu: "200m", memory: "128Mi"}
-      requests: {cpu: "50m", memory: "32Mi"}
-  - name: trivy
-    image: swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/aquasec/trivy:0.68.2
-    command: ['/bin/sh', '-c', 'sleep infinity']
-    tty: true
-    resources:
-      limits: {cpu: "500m", memory: "1Gi"}
-      requests: {cpu: "100m", memory: "256Mi"}
-  - name: syft
-    image: swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/anchore/syft:v1.46.0
-    command: ['/bin/sh', '-c', 'sleep infinity']
-    tty: true
-    resources:
-      limits: {cpu: "500m", memory: "1Gi"}
-      requests: {cpu: "100m", memory: "256Mi"}
+      requests:
+        cpu: 100m
+        memory: 256Mi
+  volumes:
+  - name: containerd-sock
+    hostPath:
+      path: /run/containerd/containerd.sock
+  - name: buildkit-sock
+    emptyDir: {}
 """
         }
     }
 
-    options {
-        timeout(time: 45, unit: 'MINUTES')
-        timestamps()
-        ansiColor('xterm')
-        buildDiscarder(logRotator(numToKeepStr: '30', artifactNumToKeepStr: '10'))
-        disableConcurrentBuilds()
-    }
-
     environment {
-        REGISTRY       = "crpi-m67ogm8wgcr0rh38.cn-hangzhou.personal.cr.aliyuncs.com"
-        REG_NAMESPACE  = "${env.ACR_NAMESPACE ?: 'your-namespace'}"
-        IMG_NAME       = "webapp"
-        TAG            = "${params.IMAGE_TAG_OVERRIDE ?: (env.GIT_COMMIT ? env.GIT_COMMIT.take(8) : 'latest')}"
-        FULL_IMG       = "${REGISTRY}/${REG_NAMESPACE}/${IMG_NAME}:${TAG}"
-        // staging 与 production 使用不同命名空间，人工批准前不会触碰生产
-        K8S_NS_STAGING = "webapp-staging"
-        K8S_NS_PROD    = "webapp"
-        K8S_DEPLOY     = "webapp"
-        PIP_INDEX      = "https://pypi.tuna.tsinghua.edu.cn/simple"
-        NPM_REGISTRY   = "https://registry.npmmirror.com"
-        GITHUB_REPO    = "aggresgesn-wq/jenkins-cicd-k8s-containerd"
-    }
-
-    parameters {
-        choice(name: 'DEPLOY_ENV', choices: ['staging', 'production'], description: '是否在测试环境验证后继续发布生产')
-        booleanParam(name: 'RUN_SECURITY_SCAN', defaultValue: true, description: '是否执行安全扫描（关闭仅用于应急）')
-        string(name: 'IMAGE_TAG_OVERRIDE', defaultValue: '', description: '可选：覆盖镜像 tag（默认取 git short sha）')
-    }
-
-    triggers {
-        cron('H 2 * * *')
+        ACR_REGISTRY = "crpi-m67ogm8wgcr0rh38.cn-hangzhou.personal.cr.aliyuncs.com"
+        ACR_NAMESPACE = "tanchenrui"
+        IMG_NAME = "webapp"
+        IMG_TAG  = sh(script: 'git rev-parse --short HEAD', returnStdout: true).trim()
+        FULL_IMG = "${ACR_REGISTRY}/${ACR_NAMESPACE}/${IMG_NAME}:${IMG_TAG}"
     }
 
     stages {
-        stage('1. 检出代码（GitHub）') {
+        stage('1. 拉取Gitea源码') {
             steps {
-                checkout scm
-                sh 'git log -1 --pretty=format:"%h %s"'
-                githubStatus('pending', 'pipeline started')
+                sh '''
+                    pwd
+                    ls -l
+                '''
             }
         }
 
-        stage('2. 后端测试') {
+        stage('2. Python 安装依赖(uv)') {
             steps {
                 container('python') {
                     sh '''
-                        set -e
-                        cd webapp
-                        mkdir -p reports
-                        python -m pip install -q --disable-pip-version-check -i "$PIP_INDEX" -e ".[dev]"
-                        python -m pytest -q --maxfail=1 --junitxml=reports/junit.xml
-                    '''
-                }
-                junit allowEmptyResults: true, testResults: 'webapp/reports/junit.xml'
-                archiveArtifacts artifacts: 'webapp/reports/junit.xml', allowEmptyArchive: true
-            }
-        }
-
-        stage('3. 前端 lint 与构建') {
-            steps {
-                container('node') {
-                    sh '''
-                        set -e
-                        cd webapp/ui
-                        npm ci --registry="$NPM_REGISTRY" --no-audit --no-fund
-                        npm run lint
-                        npm run build:prod
-                    '''
-                    archiveArtifacts artifacts: 'webapp/ui/dist/**', allowEmptyArchive: true
-                }
-            }
-        }
-
-        stage('4. 安全扫描') {
-            when {
-                expression { params.RUN_SECURITY_SCAN }
-            }
-            steps {
-                container('python') {
-                    sh '''
-                        set -e
-                        cd webapp
-                        python -m pip install -q --disable-pip-version-check -i "$PIP_INDEX" bandit pip-audit
-
-                        echo "--- 静态安全扫描 (bandit, 仅 HIGH) ---"
-                        bandit -q -r app -ll -x tests
-
-                        echo "--- 依赖漏洞扫描 (pip-audit) ---"
-                        python - <<'PY'
-import pathlib, tomllib
-deps = tomllib.loads(pathlib.Path("pyproject.toml").read_text(encoding="utf-8"))["project"]["dependencies"]
-pathlib.Path("/tmp/requirements-audit.txt").write_text("\n".join(deps), encoding="utf-8")
-PY
-                        pip-audit -r /tmp/requirements-audit.txt
-
-                        echo "--- 硬编码凭据检查 ---"
-                        python - <<'PY'
-import pathlib, re, sys
-pattern = re.compile(r"(password|passwd|secret|token)\\s*=\\s*\\S{6,}", re.I)
-hits = []
-for path in list(pathlib.Path("app").rglob("*.py")) + [pathlib.Path("config.py")]:
-    for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
-        if "os.environ" in line or "os.getenv" in line:
-            continue
-        if pattern.search(line):
-            hits.append(f"{path}:{number}: {line.strip()}")
-if hits:
-    print("发现可疑硬编码凭据：")
-    print("\\n".join(hits))
-    sys.exit(1)
-print("未发现硬编码凭据")
-PY
+                        pip install uv -i https://mirrors.aliyun.com/pypi/simple
+                        uv pip install --system -r pyproject.toml --index-url https://mirrors.aliyun.com/pypi/simple
                     '''
                 }
             }
         }
 
-        stage('5. 清单校验（helm/kubeconform/kubectl diff）') {
+        stage('3. 构建镜像') {
             steps {
-                container('kubectl') {
+                container('nerdctl') {
                     sh '''
-                        set -e
-                        cd "$WORKSPACE"
-                        kubectl kustomize deploy/k8s/overlays/staging > staging-rendered.yaml
-                        kubectl kustomize deploy/k8s/overlays/production > production-rendered.yaml
-                        echo "--- kubectl diff（staging，仅提示，不作为门禁） ---"
-                        kubectl diff -f staging-rendered.yaml || true
-                    '''
-                }
-                container('kubeconform') {
-                    sh '''
-                        set -e
-                        cd "$WORKSPACE"
-                        kubeconform -strict -summary -ignore-missing-schemas \
-                          -kubernetes-version 1.29.0 staging-rendered.yaml production-rendered.yaml
-                    '''
-                }
-                container('helm') {
-                    sh '''
-                        set -e
-                        cd "$WORKSPACE"
-                        helm lint deploy/helm/webapp
-                    '''
-                }
-            }
-        }
-
-        stage('6. 构建并推送镜像') {
-            steps {
-                container('kaniko') {
-                    withCredentials([usernamePassword(credentialsId: 'acr-credentials',
-                                                      usernameVariable: 'REG_USER',
-                                                      passwordVariable: 'REG_PASS')]) {
-                        sh '''
-                            set -e
-                            mkdir -p "$WORKSPACE/.docker"
-                            AUTH=$(printf "%s:%s" "$REG_USER" "$REG_PASS" | base64 | tr -d '\\n')
-                            cat > "$WORKSPACE/.docker/config.json" <<EOF
-{"auths":{"$REGISTRY":{"auth":"$AUTH"}}}
-EOF
-                            export DOCKER_CONFIG="$WORKSPACE/.docker"
-                            /kaniko/executor \
-                              --context=webapp \
-                              --dockerfile=dockerfile \
-                              --destination="$FULL_IMG" \
-                              --digest-file=/workspace/.image-digest \
-                              --snapshot-mode=redo \
-                              --compressed-caching=false \
-                              --reproducible
-                            test -s /workspace/.image-digest && echo "镜像 digest: $(cat /workspace/.image-digest)"
-                        '''
-                    }
-                }
-            }
-        }
-
-        stage('7. 镜像扫描与 SBOM') {
-            when {
-                expression { params.RUN_SECURITY_SCAN }
-            }
-            steps {
-                script {
-                    env.IMAGE_DIGEST = sh(script: 'cat "$WORKSPACE/.image-digest"', returnStdout: true).trim()
-                }
-                container('trivy') {
-                    withCredentials([usernamePassword(credentialsId: 'acr-credentials',
-                                                      usernameVariable: 'REG_USER',
-                                                      passwordVariable: 'REG_PASS')]) {
-                        sh '''
-                            set -e
-                            export DOCKER_CONFIG="$WORKSPACE/.docker"
-                            trivy image --quiet --exit-code 1 --severity HIGH,CRITICAL --ignore-unfixed \
-                              "$FULL_IMG@$IMAGE_DIGEST"
-                        '''
-                    }
-                }
-                container('syft') {
-                    sh '''
-                        set -e
-                        export DOCKER_CONFIG="$WORKSPACE/.docker"
-                        syft "$FULL_IMG@$IMAGE_DIGEST" -o spdx-json="$WORKSPACE/sbom.spdx.json"
-                    '''
-                }
-                archiveArtifacts artifacts: 'sbom.spdx.json', allowEmptyArchive: true
-            }
-        }
-
-        stage('8. 部署测试环境（kustomize + digest）') {
-            steps {
-                container('kubectl') {
-                    sh '''
-                        set -e
-                        cd "$WORKSPACE"
-                        DIGEST=$(cat .image-digest 2>/dev/null || true)
-                        if [ -n "$DIGEST" ]; then IMAGE_REF="$FULL_IMG@$DIGEST"; else IMAGE_REF="$FULL_IMG"; fi
-                        echo "部署镜像：$IMAGE_REF"
-                        kubectl kustomize deploy/k8s/overlays/staging \
-                          | sed "s|IMAGE_PLACEHOLDER|$IMAGE_REF|g" \
-                          | kubectl apply -f -
-                        kubectl -n "$K8S_NS_STAGING" rollout status deployment/"$K8S_DEPLOY" --timeout=180s
-                    '''
-                }
-            }
-        }
-
-        stage('9. 测试环境健康检查') {
-            steps {
-                container('kubectl') {
-                    sh '''
-                        set -e
-                        for path in /health/live /health/ready; do
-                          for i in $(seq 1 20); do
-                            if kubectl -n "$K8S_NS_STAGING" exec deployment/"$K8S_DEPLOY" -- \
-                               python -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:5000$path', timeout=5).status == 200 else 1)"; then
-                              echo "staging $path OK"; break
-                            fi
-                            [ "$i" = "20" ] && { echo "staging $path 检查失败"; exit 1; }
-                            sleep 3
-                          done
+                        # 等待 buildkitd 就绪
+                        for i in $(seq 1 30); do
+                          [ -S /run/buildkit/buildkitd.sock ] && break
+                          sleep 1
                         done
+                        [ -S /run/buildkit/buildkitd.sock ] || { echo "buildkitd 未就绪"; exit 1; }
+
+                        export BUILDKIT_HOST=unix:///run/buildkit/buildkitd.sock
+                        nerdctl build --add-host mirrors.aliyun.com:183.201.235.209 -f dockerfile -t ${FULL_IMG} .
                     '''
                 }
             }
         }
 
-        stage('10. 生产发布审批') {
-            when {
-                allOf {
-                    branch 'main'
-                    expression { params.DEPLOY_ENV == 'production' }
-                }
-            }
+        stage('4. K8s一键部署') {
             steps {
-                input message: "测试环境已通过，确认发布到生产环境 ${FULL_IMG} ?", ok: "发布生产"
-            }
-        }
-
-        stage('11. 生产部署与健康检查') {
-            when {
-                allOf {
-                    branch 'main'
-                    expression { params.DEPLOY_ENV == 'production' }
-                }
-            }
-            steps {
-                container('kubectl') {
-                    sh '''
-                        set -e
-                        cd "$WORKSPACE"
-                        DIGEST=$(cat .image-digest 2>/dev/null || true)
-                        if [ -n "$DIGEST" ]; then IMAGE_REF="$FULL_IMG@$DIGEST"; else IMAGE_REF="$FULL_IMG"; fi
-                        echo "生产部署镜像：$IMAGE_REF"
-
-                        kubectl -n "$K8S_NS_PROD" annotate deployment/"$K8S_DEPLOY" \
-                          "ci/previous-image=$(kubectl -n "$K8S_NS_PROD" get deployment/"$K8S_DEPLOY" -o jsonpath='{.spec.template.spec.containers[0].image}')" \
-                          --overwrite
-                        kubectl kustomize deploy/k8s/overlays/production \
-                          | sed "s|IMAGE_PLACEHOLDER|$IMAGE_REF|g" \
-                          | kubectl apply -f -
-                        kubectl -n "$K8S_NS_PROD" rollout status deployment/"$K8S_DEPLOY" --timeout=300s
-
-                        for path in /health/live /health/ready; do
-                          for i in $(seq 1 20); do
-                            if kubectl -n "$K8S_NS_PROD" exec deployment/"$K8S_DEPLOY" -- \
-                               python -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:5000$path', timeout=5).status == 200 else 1)"; then
-                              echo "prod $path OK"; break
-                            fi
-                            [ "$i" = "20" ] && { echo "prod $path 检查失败"; exit 1; }
-                            sleep 3
-                          done
-                        done
-                    '''
-                }
+                echo "后续填入kubectl更新镜像命令"
             }
         }
     }
 
     post {
+        always {
+            echo "流水线执行结束"
+        }
         success {
-            githubStatus('success', 'pipeline succeeded')
-            notifyBuild('SUCCESS')
-            echo "✅ 流水线完成，镜像 ${FULL_IMG} 已发布"
+            echo "✅ 流水线构建推送成功！镜像地址：${FULL_IMG}"
         }
         failure {
-            container('kubectl') {
-                sh '''
-                    # 只有生产发布阶段失败才回滚生产；测试环境失败保留现场便于排查
-                    if [ "$DEPLOY_ENV" = "production" ]; then
-                      current=$(kubectl -n "$K8S_NS_PROD" get deployment/"$K8S_DEPLOY" -o jsonpath='{.spec.template.spec.containers[0].image}' 2>/dev/null || true)
-                      if printf '%s' "$current" | grep -q "$TAG"; then
-                        kubectl -n "$K8S_NS_PROD" rollout undo deployment/"$K8S_DEPLOY" || true
-                      fi
-                    fi
-                '''
-            }
-            echo "❌ 流水线失败，请查看日志；生产环境已尝试回滚"
-            githubStatus('failure', 'pipeline failed, see Jenkins logs')
-            notifyBuild('FAILURE')
+            echo "❌ 流水线失败，请查看日志"
         }
-        always {
-            cleanWs()
-        }
-    }
-}
-
-/**
- * 回写 GitHub Commit Status。
- * 凭据 `github-token` 缺失或接口失败时只打印告警，不终止流水线。
- */
-def githubStatus(String state, String description) {
-    try {
-        withEnv(["GH_STATE=${state}", "GH_DESC=${description}"]) {
-            withCredentials([string(credentialsId: 'github-token', variable: 'GITHUB_TOKEN')]) {
-                container('python') {
-                    sh '''
-                        set +e
-                        payload=$(printf '{"state":"%s","context":"jenkins/ci","target_url":"%s","description":"%s"}' \
-                          "$GH_STATE" "$BUILD_URL" "$GH_DESC")
-                        curl -fsS -X POST \
-                          -H "Authorization: token $GITHUB_TOKEN" \
-                          -H "Accept: application/vnd.github+json" \
-                          -H "Content-Type: application/json" \
-                          -d "$payload" \
-                          "https://api.github.com/repos/$GITHUB_REPO/statuses/$GIT_COMMIT" >/dev/null
-                        rc=$?
-                        [ $rc -ne 0 ] && echo "WARN: GitHub 提交状态回写失败，请检查 github-token 凭据与权限"
-                        exit 0
-                    '''
-                }
-            }
-        }
-    } catch (err) {
-        echo "未配置 github-token 凭据，跳过提交状态回写"
-    }
-}
-
-/**
- * 可选的构建通知（钉钉机器人）。凭据缺失时静默跳过。
- */
-def notifyBuild(String result) {
-    try {
-        withEnv(["NOTIFY_RESULT=${result}"]) {
-            withCredentials([string(credentialsId: 'dingtalk-webhook', variable: 'DINGTALK_WEBHOOK')]) {
-                container('python') {
-                    sh '''
-                        payload=$(printf '{"msgtype":"text","text":{"content":"Jenkins 构建 %s | %s | %s"}}' \
-                          "$NOTIFY_RESULT" "$JOB_NAME" "$BUILD_URL")
-                        curl -fsS -H 'Content-Type: application/json' -d "$payload" "$DINGTALK_WEBHOOK" \
-                          || echo "WARN: 钉钉通知发送失败"
-                    '''
-                }
-            }
-        }
-    } catch (err) {
-        echo "未配置 dingtalk-webhook 凭据，跳过构建通知"
     }
 }
