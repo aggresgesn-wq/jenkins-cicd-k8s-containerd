@@ -1,6 +1,6 @@
 """配置项匿名访问、CSRF 双提交校验。"""
 
-from conftest import auth_client
+from tests.conftest import auth_client
 
 
 def test_public_config_key_is_readable_anonymously(client):
