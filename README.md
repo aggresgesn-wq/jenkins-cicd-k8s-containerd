@@ -33,6 +33,18 @@ Flask + Vue 权限管理系统，覆盖登录、用户 / 角色 / 机构管理�
 | --- | --- |
 | <img src="docs/images/app/05-operation-log.png" width="480" alt="操作日志"/> | <img src="docs/images/app/06-login-history.png" width="480" alt="登录历史"/> |
 
+## Jenkins 操作画面
+
+| 任务列表 | 新建流水线 |
+| --- | --- |
+| <img src="docs/images/jenkins/02-dashboard.png" width="480" alt="Jenkins 任务列表"/> | <img src="docs/images/jenkins/03-new-pipeline-job.png" width="480" alt="新建流水线任务"/> |
+
+| Pipeline script from SCM | 插件管理 |
+| --- | --- |
+| <img src="docs/images/jenkins/04-pipeline-scm.png" width="480" alt="流水线 SCM 配置"/> | <img src="docs/images/jenkins/06-plugin-manager.png" width="300" alt="插件管理"/> |
+
+截图来自 Jenkins 2.541.1 的操作界面；构建结果以顶部 #53 阶段视图为准，逐项配置说明见 [docs/JENKINS-UI.md](docs/JENKINS-UI.md)。
+
 ## 能力状态
 
 | 能力 | 当前状态 | 依据 |
