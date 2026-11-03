@@ -7,27 +7,29 @@
 ## 安装
 
 ```bash
-kubectl create namespace webapp
+kubectl create namespace webapp --dry-run=client -o yaml | kubectl apply -f -
 
 kubectl -n webapp create secret generic webapp-secret \
   --from-literal=SECRET_KEY="$(openssl rand -hex 32)" \
   --from-literal=CAPTCHA_SECRET_KEY="$(openssl rand -hex 16)" \
-  --from-literal=DATABASE_URI="mysql+mysqlconnector://webapp:REPLACE_ME@mysql:3306/authbase?charset=utf8mb4"
+  --from-literal=DATABASE_URI="mysql+mysqlconnector://webapp:REPLACE_ME@mysql:3306/authbase?charset=utf8mb4" \
+  --dry-run=client -o yaml | kubectl apply -f -
 
 helm upgrade --install webapp deploy/helm/webapp \
   --namespace webapp \
-  --set image.tag="$(git rev-parse --short HEAD)" \
+  --set-string image.repository="registry.example.com/webapp" \
+  --set-string image.tag="sha256-REPLACE_ME" \
   --set ingress.host="app.example.com"
 ```
 
-`fullnameOverride` 固定为 `webapp`，因此 Deployment/Service 名称与 `webapp/Jenkinsfile` 中的 `kubectl set image deployment/webapp` 保持一致。
+把 `REPLACE_ME` 替换为真实值。`fullnameOverride` 固定为 `webapp`，仅用于稳定 Deployment/Service 名称；后续镜像更新必须继续通过 Helm，不能使用 `kubectl set image` 制造配置漂移。
 
 ## 常用参数
 
 | 参数 | 默认值 | 说明 |
 | --- | --- | --- |
 | `image.repository` | ACR 仓库地址 | 镜像仓库 |
-| `image.tag` | Chart appVersion | 建议在 CI 中覆盖为 git short sha |
+| `image.tag` | Chart appVersion | 必须在安装/升级时覆盖为不可变版本 |
 | `existingSecret` | `webapp-secret` | 敏感配置来源，不写入 values |
 | `config.*` | 见 values.yaml | 非敏感环境变量，写入 ConfigMap |
 | `persistence.enabled/size` | `true` / `5Gi` | 头像上传目录 |
@@ -38,13 +40,13 @@ helm upgrade --install webapp deploy/helm/webapp \
 ## 升级与回滚
 
 ```bash
-helm upgrade webapp deploy/helm/webapp -n webapp --reuse-values --set image.tag=<sha>
+helm upgrade webapp deploy/helm/webapp -n webapp --reuse-values --set-string image.tag=sha256-REPLACE_WITH_DIGEST
 helm history webapp -n webapp
-helm rollback webapp <revision> -n webapp
+helm rollback webapp REVISION_NUMBER -n webapp
 ```
 
 ## 与 kustomize 的关系
 
-- `deploy/k8s`：完整清单，适合 `kubectl apply -k` 直接部署与教学对照；
-- `deploy/helm/webapp`：同一套资源的参数化版本，适合多环境发布；
-- 两者二选一，避免同时管理同一批对象。
+- `deploy/k8s`：项目主发布方式，按 staging/production overlay 交付；
+- `deploy/helm/webapp`：独立的可选安装示例，不是主发布链路；
+- 两者必须二选一；已经由一种工具创建的 release，不得直接切换另一种工具接管。

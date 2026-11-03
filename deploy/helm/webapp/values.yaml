@@ -19,7 +19,7 @@ image:
 
 imagePullSecrets: []
 nameOverride: ""
-# 固定为 webapp，保证 `kubectl set image deployment/webapp` 与 Jenkinsfile 中的名称一致
+# 固定资源名；Helm 管理的 release 仍只能通过 Helm 升级与回滚
 fullnameOverride: "webapp"
 
 serviceAccount:

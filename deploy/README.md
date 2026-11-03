@@ -1,7 +1,7 @@
 # webapp 云原生部署说明
 
 本目录是 Flask + Vue 应用（`webapp`）的 Kubernetes 部署产物，包含 Deployment、Service、
-Ingress、PVC、NetworkPolicy、PDB 等清单，可用 `kubectl apply -k` 一键部署。
+Ingress、PVC、NetworkPolicy、PDB 等清单。主发布通过 `ci/release.sh` 渲染 Kustomize overlay、注入不可变镜像 digest 后部署；不要直接 apply 含镜像占位符的 base。
 
 ## 目录结构
 
@@ -9,17 +9,12 @@ Ingress、PVC、NetworkPolicy、PDB 等清单，可用 `kubectl apply -k` 一键
 deploy/
 ├── README.md
 └── k8s/
-    ├── kustomization.yaml   # 资源列表，apply -k 入口
+    ├── kustomization.yaml   # 资源组合入口，不作为主发布命令
     ├── namespace.yaml       # namespace: webapp
-    ├── configmap.yaml       # 非敏感配置
-    ├── secret.example.yaml  # Secret 占位示例（不在 kustomization 中）
-    ├── serviceaccount.yaml  # 无 RBAC、关闭 Token 挂载
-    ├── pvc.yaml             # /app/uploads 持久卷
-    ├── deployment.yaml      # 2 副本、探针、安全上下文
-    ├── service.yaml         # ClusterIP 80 -> 5000
-    ├── ingress.yaml         # webapp.example.com，nginx class
-    ├── networkpolicy.yaml   # 默认拒绝入站 + 最小出站
-    └── pdb.yaml             # minAvailable: 1
+    ├── base/                # Deployment/Service/PVC/NetworkPolicy 等基础资源
+    └── overlays/
+        ├── staging/         # webapp-staging，固定单副本
+        └── production/      # webapp，生产副本/HPA/PDB
 ```
 
 ## 前置条件
@@ -28,8 +23,7 @@ deploy/
 - 已安装 ingress-nginx，且 `IngressClass` 名称为 `nginx`（按需修改 `ingress.yaml`）；
 - 集群有默认 StorageClass，且支持 `ReadWriteMany`（NFS / CephFS / NAS 等）；
   只有 `ReadWriteOnce` 存储时请看 [存储说明](#存储说明)；
-- 已构建并推送镜像，地址形如
-  `crpi-m67ogm8wgcr0rh38.cn-hangzhou.personal.cr.aliyuncs.com/<acr-namespace>/webapp:<git-short-sha>`；
+- 已构建并推送镜像，且取得仓库返回的 `sha256:<64位摘要>`；
 - 本地具备 `kubectl`，可选安装 `kustomize`。
 
 ## 1. 创建命名空间
@@ -79,24 +73,19 @@ kubectl -n webapp create secret generic webapp-secret \
 
 ## 3. 部署
 
-先准备本次发布的镜像地址，然后执行：
+主发布入口是 `ci/release.sh`，它先渲染和 diff，再以 digest 应用清单并等待 rollout。不要先应用含 `IMAGE_PLACEHOLDER` 的 base，也不要用 `kustomize edit` 修改仓库中的源文件。
 
 ```bash
-export IMAGE=crpi-m67ogm8wgcr0rh38.cn-hangzhou.personal.cr.aliyuncs.com/<acr-namespace>/webapp:<git-short-sha>
+kubectl config current-context
+kubectl apply -f deploy/k8s/namespace.yaml
 
-kubectl apply -k deploy/k8s
-kubectl -n webapp set image deployment/webapp webapp="$IMAGE"
-kubectl -n webapp rollout status deployment/webapp --timeout=180s
+export WORKSPACE="$PWD"
+export FULL_IMG="registry.example.com/webapp:${GIT_COMMIT:-manual}"
+printf '%s' 'sha256:<64位镜像摘要>' > .image-digest
+sh ci/release.sh deploy webapp deploy/k8s/overlays/production
 ```
 
-`deployment.yaml` 中的镜像占位符是 `IMAGE_PLACEHOLDER`，首次 `apply` 后立即 `set image` 即可；
-如果 CI 环境安装了 `kustomize`，也可以先替换镜像再 apply，避免出现短暂的 `ImagePullBackOff`：
-
-```bash
-cd deploy/k8s
-kustomize edit set image IMAGE_PLACEHOLDER="$IMAGE"
-kubectl apply -k .
-```
+测试环境先应用 `deploy/k8s/overlays/staging/namespace.yaml`，再把命名空间和 overlay 改为 `webapp-staging`、`deploy/k8s/overlays/staging`。生产必须先完成 staging 验收和人工审批。
 
 ## 4. 验证
 
@@ -109,7 +98,7 @@ curl -i http://127.0.0.1:8080/health/live    # 存活：不查数据库，返回
 curl -i http://127.0.0.1:8080/health/ready   # 就绪：执行 SELECT 1，数据库异常返回 503
 
 # 通过 Ingress 验证（替换为实际入口 IP/域名）
-curl -i -H 'Host: webapp.example.com' http://<ingress-ip>/health/live
+curl -i -H 'Host: webapp.example.com' http://REPLACE_WITH_INGRESS_IP/health/live
 ```
 
 部署完成后可访问 `http://webapp.example.com/`。登录页由 Flask 提供静态资源，接口前缀为 `/prod-api`。
@@ -117,12 +106,8 @@ curl -i -H 'Host: webapp.example.com' http://<ingress-ip>/health/live
 ## 5. 滚动发布
 
 ```bash
-# 记录变更原因，便于回滚时识别版本
-kubectl -n webapp annotate deployment/webapp kubernetes.io/change-cause="release ${IMAGE##*:}" --overwrite
-
-# 更新镜像会触发 RollingUpdate：maxUnavailable=0、maxSurge=1，先起新 Pod 再停旧 Pod
-kubectl -n webapp set image deployment/webapp webapp="$IMAGE"
-kubectl -n webapp rollout status deployment/webapp --timeout=180s
+# 使用同一发布入口；发布证据保存在 .release-webapp/
+sh ci/release.sh deploy webapp deploy/k8s/overlays/production
 kubectl -n webapp rollout history deployment/webapp
 ```
 
@@ -139,16 +124,11 @@ kubectl -n webapp describe deployment webapp
 # 查看历史版本（Revision 与 change-cause）
 kubectl -n webapp rollout history deployment/webapp
 
-# 回滚到上一个版本
-kubectl -n webapp rollout undo deployment/webapp
-
-# 回滚到指定版本
-kubectl -n webapp rollout undo deployment/webapp --to-revision=2
-
-kubectl -n webapp rollout status deployment/webapp --timeout=180s
+# 仅恢复本次发布前记录的镜像，并用 JSON Patch 防止覆盖更新的 release
+sh ci/release.sh rollback webapp
 ```
 
-Deployment 保留最近 5 个 ReplicaSet（`revisionHistoryLimit: 5`），更早的版本无法直接回滚。
+自动恢复只恢复镜像，不回退 ConfigMap/Ingress 等资源；配置变更失败时，按 Git 中上一版本重新发布。Deployment 保留最近 5 个 ReplicaSet（`revisionHistoryLimit: 5`）供人工应急参考。
 
 ## 7. 启用 TLS 与 SESSION_COOKIE_SECURE
 
@@ -163,7 +143,8 @@ Deployment 保留最近 5 个 ReplicaSet（`revisionHistoryLimit: 5`），更早
 ```bash
 kubectl -n webapp create secret tls webapp-tls \
   --cert=fullchain.pem \
-  --key=privkey.pem
+  --key=privkey.pem \
+  --dry-run=client -o yaml | kubectl apply -f -
 ```
 
 **使用 cert-manager 自动签发**：在 `ingress.yaml` 的 annotations 中取消
@@ -176,7 +157,7 @@ kubectl -n webapp create secret tls webapp-tls \
 然后重新 apply：
 
 ```bash
-kubectl apply -k deploy/k8s
+sh ci/release.sh deploy webapp deploy/k8s/overlays/production
 kubectl -n webapp get ingress webapp
 ```
 
@@ -187,7 +168,7 @@ kubectl -n webapp get ingress webapp
 
 ```bash
 # 修改 deploy/k8s/base/configmap.yaml 后
-kubectl apply -k deploy/k8s
+sh ci/release.sh deploy webapp deploy/k8s/overlays/production
 kubectl -n webapp rollout restart deployment/webapp
 kubectl -n webapp rollout status deployment/webapp --timeout=180s
 ```
