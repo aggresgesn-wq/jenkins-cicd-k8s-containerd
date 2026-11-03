@@ -1,29 +1,7 @@
-# 一键部署：kubectl apply -k deploy/k8s
-# 注意：secret.example.yaml 故意不列入资源，避免用占位符覆盖线上真实 Secret；
-# 请先按 deploy/README.md 创建 webapp-secret。
+# Administrator bootstrap entry; CI uses overlays without Namespace.
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
-
-# 统一设置命名空间（cluster-scoped 的 Namespace 资源不会被改写）
 namespace: webapp
-
 resources:
-  - namespace.yaml
-  - serviceaccount.yaml
-  - configmap.yaml
-  - pvc.yaml
-  - deployment.yaml
-  - service.yaml
-  - ingress.yaml
-  - networkpolicy.yaml
-  - pdb.yaml
-  - hpa.yaml
-
-# 可选组件（按需启用，启用前先创建对应 Secret）：
-#   - mysql.yaml                  # 示例 MySQL StatefulSet（需先创建 mysql-secret）
-#   - mysql-backup-cronjob.yaml   # 每日 mysqldump 备份（需 mysql-secret 与 StorageClass）
-#   - jenkins-rbac.yaml           # Jenkins 构建 Pod 的最小权限（含 jenkins 命名空间的 ServiceAccount）
-
-# CI 发布时可在 deploy/k8s 目录执行：
-#   kustomize edit set image IMAGE_PLACEHOLDER=<镜像仓库>/<acr-namespace>/webapp:<git-short-sha>
-# 再 kubectl apply -k .；也可以先 apply 再用 kubectl set image 触发滚动更新。
+- namespace.yaml
+- base

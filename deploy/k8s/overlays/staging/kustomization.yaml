@@ -1,39 +1,38 @@
-# 测试环境 overlay：与生产共用同一套清单，但落在独立命名空间 webapp-staging。
-#
-#   kubectl kustomize deploy/k8s/overlays/staging | kubectl apply -f -
-#   kubectl -n webapp-staging rollout status deployment/webapp
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
-
 namespace: webapp-staging
-
 resources:
-  - ../../serviceaccount.yaml
-  - ../../configmap.yaml
-  - ../../pvc.yaml
-  - ../../deployment.yaml
-  - ../../service.yaml
-  - ../../ingress.yaml
-  - ../../networkpolicy.yaml
-  - ../../pdb.yaml
-  - ../../hpa.yaml
-
-# 测试环境副本数可以低一些；生产仍由 ../../hpa.yaml 控制
+- ../../base
 replicas:
-  - name: webapp
-    count: 1
-
+- name: webapp
+  count: 1
 patches:
-  - target:
-      kind: Ingress
+- target:
+    kind: HorizontalPodAutoscaler
+    name: webapp
+  patch: |-
+    $patch: delete
+    apiVersion: autoscaling/v2
+    kind: HorizontalPodAutoscaler
+    metadata:
       name: webapp
-    patch: |-
-      - op: replace
-        path: /spec/rules/0/host
-        value: webapp-staging.example.com
-      - op: replace
-        path: /spec/tls/0/hosts/0
-        value: webapp-staging.example.com
-      - op: replace
-        path: /spec/tls/0/secretName
-        value: webapp-staging-tls
+- target:
+    kind: PodDisruptionBudget
+    name: webapp
+  patch: |-
+    - op: replace
+      path: /spec/minAvailable
+      value: 0
+- target:
+    kind: Ingress
+    name: webapp
+  patch: |-
+    - op: replace
+      path: /spec/rules/0/host
+      value: webapp-staging.example.com
+    - op: replace
+      path: /spec/tls/0/hosts/0
+      value: webapp-staging.example.com
+    - op: replace
+      path: /spec/tls/0/secretName
+      value: webapp-staging-tls

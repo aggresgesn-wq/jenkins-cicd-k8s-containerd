@@ -41,6 +41,7 @@ webapp/ui/.env.*.local
 build-metadata.json
 sbom.spdx.json
 reports/
+.tools/
 ops/inventory.local.*
 .npm-cache/
 

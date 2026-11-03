@@ -19,3 +19,11 @@
 ## #53 与本轮代码的关系
 
 #53 验证的是 Gitea commit caa95a0…，本轮导入其两个构建文件、截图及日志摘要。它不证明 GitHub 当前应用源码、lab 目录适配版或 hardened 候选已运行成功。
+
+## Kustomize 发布设计更新 · 2026-11-03
+
+- 16 项运维/备份/权限/实际渲染测试及 12 项发布回归通过，共 28 项。
+- 使用 SHA-256 校验后的官方 kubectl v1.29.3 离线渲染 staging、production 与管理员 bootstrap，未连接集群。
+- 原 overlay 的目录外 YAML 加载错误已复现并修复为 base/overlays 结构。
+- 发布 Job 的 Pod YAML、工作流、架构 SVG 检查通过；Jenkins Declarative linter 和真实集群发布未执行。
+- 新发布入口使用独立 ServiceAccount，但 Deployment 写权限及旧实验构建的宿主机权限风险仍在规程中明确列出。

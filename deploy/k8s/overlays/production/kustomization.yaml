@@ -1,21 +1,5 @@
-# 生产环境 overlay：命名空间 webapp，域名 webapp.example.com。
-#
-#   kubectl kustomize deploy/k8s/overlays/production | kubectl apply -f -
-#   kubectl -n webapp rollout status deployment/webapp
-#
-# CI 会把渲染结果中的 IMAGE_PLACEHOLDER 替换为 image@sha256:... 后再 apply。
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
-
 namespace: webapp
-
 resources:
-  - ../../serviceaccount.yaml
-  - ../../configmap.yaml
-  - ../../pvc.yaml
-  - ../../deployment.yaml
-  - ../../service.yaml
-  - ../../ingress.yaml
-  - ../../networkpolicy.yaml
-  - ../../pdb.yaml
-  - ../../hpa.yaml
+- ../../base

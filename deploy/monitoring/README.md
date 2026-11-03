@@ -22,7 +22,7 @@ kubectl apply -f deploy/monitoring/servicemonitor.yaml
 kubectl apply -f deploy/monitoring/prometheusrule.yaml
 ```
 
-`ServiceMonitor` 依赖应用 Service 的端口名 `http`（见 `deploy/k8s/service.yaml`）；`PrometheusRule` 的 `release` 标签需与 Prometheus 的 selector 一致。
+`ServiceMonitor` 依赖应用 Service 的端口名 `http`（见 `deploy/k8s/base/service.yaml`）；`PrometheusRule` 的 `release` 标签需与 Prometheus 的 selector 一致。
 
 ### 方式 B：静态抓取
 

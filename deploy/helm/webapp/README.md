@@ -1,3 +1,5 @@
+> 可选安装方案。主发布使用 Kustomize，见 [发布规程](../../../docs/RELEASE-RUNBOOK.md)。禁止 Helm 与 Kustomize 同时管理同一 release 的资源。
+
 # webapp Helm Chart
 
 把 `deploy/k8s` 的清单参数化为一个可复用的 Chart（Deployment / Service / Ingress / HPA / PDB / PVC / NetworkPolicy / ServiceAccount）。

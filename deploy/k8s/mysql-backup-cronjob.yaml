@@ -4,7 +4,7 @@
 #   1. 已按 mysql.yaml 部署 MySQL，且存在 mysql-secret；
 #   2. 集群有可用的 StorageClass（RWO 即可）。
 #
-# 备份文件写入 PVC `/backup`，文件名包含时间戳；Job 结束前删除 7 天前的备份。
+# 完成的备份必须同时包含 .sql.gz 与 .sha256；保留策略在异机复制验证后执行。
 # 恢复演练见 docs/DEPLOYMENT.md 的“备份与恢复”一节。
 apiVersion: v1
 kind: PersistentVolumeClaim
@@ -28,17 +28,21 @@ metadata:
     app: mysql-backup
 spec:
   schedule: "30 3 * * *"          # 每天 03:30
+  timeZone: Asia/Shanghai        # 需要 Kubernetes >= 1.27
+  startingDeadlineSeconds: 1800
   concurrencyPolicy: Forbid
   successfulJobsHistoryLimit: 3
   failedJobsHistoryLimit: 3
   jobTemplate:
     spec:
       backoffLimit: 1
+      activeDeadlineSeconds: 1800
       template:
         metadata:
           labels:
             app: mysql-backup
         spec:
+          automountServiceAccountToken: false
           restartPolicy: Never
           securityContext:
             runAsNonRoot: true
@@ -54,17 +58,26 @@ spec:
                       name: mysql-secret
                       key: MYSQL_ROOT_PASSWORD
               command:
-                - /bin/sh
+                - /bin/bash
                 - -c
                 - |
-                  set -e
-                  ts=$(date +%Y%m%d-%H%M%S)
-                  file="/backup/authbase-${ts}.sql.gz"
+                  set -euo pipefail
+                  umask 077
+                  ts=$(date -u +%Y%m%dT%H%M%SZ)
+                  file="${BACKUP_DIR:-/backup}/authbase-${ts}-$$.sql.gz"
+                  partial="${file}.partial"
+                  trap 'rm -f -- "$partial" "${file}.sha256.partial"' EXIT
                   echo "开始备份到 ${file}"
-                  mysqldump -h mysql -uroot -p"${MYSQL_ROOT_PASSWORD}" \
-                    --single-transaction --routines --triggers --events authbase | gzip > "${file}"
-                  echo "备份完成：$(du -h "${file}" | cut -f1)"
-                  find /backup -name 'authbase-*.sql.gz' -mtime +7 -print -delete
+                  export MYSQL_PWD="${MYSQL_ROOT_PASSWORD}"
+                  mysqldump -h mysql -uroot \
+                    --single-transaction --routines --triggers --events authbase | gzip > "$partial"
+                  unset MYSQL_PWD
+                  gzip -t "$partial"
+                  hash=$(sha256sum "$partial" | awk '{print $1}')
+                  printf '%s  %s\n' "$hash" "$(basename "$file")" > "${file}.sha256.partial"
+                  mv -- "$partial" "$file"
+                  mv -- "${file}.sha256.partial" "${file}.sha256"
+                  echo "备份文件及校验和已生成；仍需异机复制与恢复验证"
               resources:
                 requests:
                   cpu: "100m"
