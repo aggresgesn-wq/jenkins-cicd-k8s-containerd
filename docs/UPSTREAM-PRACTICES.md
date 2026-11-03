@@ -23,6 +23,8 @@
 | pytest 覆盖率产物（`coverage.xml` 随 JUnit 一起上传） | podinfo 的可观测测试习惯 | 测试结果不只是一行“passed”，还能看趋势 |
 | `CODEOWNERS` + PR 模板 | 成熟仓库的协作约定 | 变更有人负责、PR 有固定检查清单 |
 
+> Docker 镜像的依赖更新暂未交给 Dependabot：本仓库的构建文件名为小写 `dockerfile` / `dockerfile.production`，Dependabot 的 docker 生态只识别 `Dockerfile` / `Containerfile`，强行配置会产生失败任务。镜像基础层更新改用 Trivy 扫描结果 + 手工升级，避免制造红色检查。
+
 ## 3. 明确不采纳
 
 - **Agent 挂载 Docker socket**：`Jenkins-Zero-To-Hero` 这类教程常见，但等于给构建 Pod 宿主机 root；本项目继续用 Kaniko/BuildKit 路线。
