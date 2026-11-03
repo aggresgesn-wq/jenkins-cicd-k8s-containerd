@@ -14,6 +14,8 @@
 
 ![实际环境与交付边界](docs/images/architecture.svg)
 
+> Docker 负责镜像构建与本地运行，Kubernetes 负责编排、发布与回滚；具体命令见 [操作命令（Docker / Kubernetes）](#操作命令docker--kubernetes)。
+
 - Kubernetes：3 个节点；日志确认构建 Pod 调度到 `k8s-master`，其余节点名称、资源和角色待填写资产清单。
 - 独立 VM：承载 Gitea与 NFS；具体哪些 PVC 使用 NFS 需要现场清单确认。
 - Gitee：示例应用的上游来源，不等于当前 Jenkins 的实际检出地址。
@@ -88,6 +90,76 @@ Flask + Vue 权限管理系统，覆盖登录、用户 / 角色 / 机构管理�
 保留现有 Gitea Job 时使用原始文件。从 GitHub 新建实验 Job 时，配置 Pipeline script from SCM、当前仓库、main 分支，Script Path 选择 `ci/Jenkinsfile.lab`。它会进入 webapp/ 后构建，首次执行仍需验证。默认原始 dockerfile 使用 `python start.py`，与当前 GitHub 应用的生产运行要求不同；发布前使用并验证 production 镜像。
 
 原文件固定 IP 是当时网络排障的临时措施，不能保证长期有效；先检查节点 DNS、CoreDNS 与代理配置，见运维手册。
+
+## 操作命令（Docker / Kubernetes）
+
+### Docker：本地构建与运行
+
+```bash
+cd webapp
+
+# 生产形态：Gunicorn + 非 root（推荐）
+docker build -f dockerfile.production -t webapp:local .
+
+# #53 原始文件（python start.py，仅用于对照复现）
+docker build -f dockerfile -t webapp:dev .
+
+docker run --rm -p 5000:5000 \
+  -e FLASK_CONFIG=production \
+  -e SECRET_KEY="<32 字节随机值>" \
+  -e DATABASE_URI="mysql+mysqlconnector://webapp:<密码>@host.docker.internal:3306/authbase?charset=utf8mb4" \
+  -e CAPTCHA_SECRET_KEY="<32 字节随机值>" \
+  webapp:local
+
+curl -fsS http://127.0.0.1:5000/health/live
+```
+
+- 数据库可用本机 MySQL、`deploy/k8s/mysql.yaml` 或托管实例；
+- 镜像里不写死密钥，全部走环境变量（见 `webapp/config.py`）；
+- 健康检查：`/health/live`（存活）、`/health/ready`（就绪）。
+
+### Kubernetes：渲染、部署、排障、回滚
+
+```bash
+# 1. 渲染清单（先看再应用，不落地）
+kubectl kustomize deploy/k8s/overlays/staging > /tmp/staging.yaml
+
+# 2. 应用（测试环境，namespace: webapp-staging）
+kubectl apply -f /tmp/staging.yaml
+
+# 3. 等待滚动发布完成
+kubectl -n webapp-staging rollout status deployment/webapp --timeout=180s
+
+# 4. 查看对象与日志
+kubectl -n webapp-staging get pods,svc,ingress
+kubectl -n webapp-staging logs deploy/webapp --tail=100
+
+# 5. 本地访问验证
+kubectl -n webapp-staging port-forward svc/webapp 8080:80
+curl -fsS http://127.0.0.1:8080/health/ready
+
+# 6. 回滚到上一版本
+kubectl -n webapp-staging rollout undo deployment/webapp
+```
+
+生产环境把路径和命名空间换成 `overlays/production`、`webapp`，并按流程先审批再执行。手工部署前需要把清单里的 `IMAGE_PLACEHOLDER` 替换成真实镜像 digest：
+
+```bash
+kubectl kustomize deploy/k8s/overlays/production > /tmp/production.yaml
+sed "s|IMAGE_PLACEHOLDER|registry.example.com/webapp@sha256:<digest>|g" /tmp/production.yaml | kubectl apply -f -
+kubectl -n webapp rollout status deployment/webapp --timeout=300s
+```
+
+Helm 方式（可选）：
+
+```bash
+helm upgrade --install webapp deploy/helm/webapp \
+  --namespace webapp-staging --create-namespace \
+  --set image.repository=registry.example.com/webapp \
+  --set image.tag=sha256-<digest>
+```
+
+逐项说明见 [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)。
 
 ```bash
 # 只读巡检：不读取 Secret/日志，不修改集群
