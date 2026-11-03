@@ -78,6 +78,8 @@ Flask + Vue 权限管理系统，覆盖登录、用户 / 角色 / 机构管理�
 | [#53 证据](docs/evidence/build-53/README.md) | commit、文件哈希、日志及证明边界 |
 | [架构说明](docs/ARCHITECTURE.md) | 拓扑、组件职责与风险 |
 | [运维手册](docs/OPERATIONS.md) | 巡检、排障、备份恢复与演练 |
+| [Makefile](Makefile) | 本地与 CI 统一入口：install / test / lint / render / verify |
+| [docs/UPSTREAM-PRACTICES.md](docs/UPSTREAM-PRACTICES.md) | 上游项目对标与采纳记录 |
 
 ## 复现入口
 
