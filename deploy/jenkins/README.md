@@ -14,10 +14,11 @@
 helm repo add jenkins https://charts.jenkins.io
 helm repo update
 
-kubectl create namespace jenkins
+kubectl create namespace jenkins --dry-run=client -o yaml | kubectl apply -f -
 kubectl -n jenkins create secret generic jenkins-admin \
   --from-literal=jenkins-admin-user=admin \
-  --from-literal=jenkins-admin-password="$(openssl rand -base64 24)"
+  --from-literal=jenkins-admin-password="$(openssl rand -base64 24)" \
+  --dry-run=client -o yaml | kubectl apply -f -
 
 helm upgrade --install jenkins jenkins/jenkins \
   --namespace jenkins \
@@ -116,21 +117,21 @@ Job 触发勾选 *GitHub hook trigger for GITScm polling*，Job 类型为 *Pipel
 
 ## 6. 备份与恢复
 
-`JENKINS_HOME` 包含 `jobs/`、`credentials.xml`、`secrets/`、`plugins/`、`nodes/`、`users/` 等，务必整体备份（PDB/JCasC 也无法替代凭据与密钥）：
+`JENKINS_HOME` 包含 `jobs/`、`credentials.xml`、`secrets/`、`plugins/`、`nodes/`、`users/` 等，务必整体备份（PDB/JCasC 也无法替代凭据与密钥）。优先使用存储系统的 CSI VolumeSnapshot；文件级备份必须先进入维护窗口并停止写入，禁止向正在运行的 Jenkins 直接覆盖恢复：
 
 ```bash
-# 备份（PVC 快照或拷贝）
+backup="jenkins-home-$(date +%Y%m%d).tar.gz"
+# 仅用于已停止写入的维护窗口；完成后生成校验和
 kubectl -n jenkins exec jenkins-0 -c jenkins -- tar czf - /var/jenkins_home \
-  > jenkins-home-$(date +%Y%m%d).tar.gz
+  > "$backup"
+sha256sum "$backup" > "$backup.sha256"
 
-# 恢复
-kubectl -n jenkins cp jenkins-home-20260101.tar.gz jenkins-0:/tmp/
-kubectl -n jenkins exec jenkins-0 -c jenkins -- \
-  tar xzf /tmp/jenkins-home-20260101.tar.gz -C /
-kubectl -n jenkins rollout restart statefulset/jenkins
+# 恢复前先验证归档；恢复应在隔离的临时 Pod/PVC 上完成
+sha256sum --check jenkins-home-20260101.tar.gz.sha256
+tar tzf jenkins-home-20260101.tar.gz >/dev/null
 ```
 
-云上更推荐对存储卷做定时快照，并定期在测试环境演练恢复。
+恢复流程：停止 Jenkins StatefulSet、把备份恢复到新 PVC、用临时 Jenkins 实例验证登录与 Job，再切换正式 PVC。具体 PVC/StorageClass 与快照命令依赖现场环境，不在通用命令中猜测。每季度至少在隔离命名空间演练一次并记录 RPO/RTO。
 
 ## 7. 升级与卸载
 
@@ -138,11 +139,12 @@ kubectl -n jenkins rollout restart statefulset/jenkins
 helm repo update
 helm upgrade jenkins jenkins/jenkins -n jenkins -f deploy/jenkins/values.yaml --wait
 helm history jenkins -n jenkins
-helm rollback jenkins <revision> -n jenkins
+helm rollback jenkins REVISION_NUMBER -n jenkins
 
 helm uninstall jenkins -n jenkins
-kubectl delete pvc -n jenkins -l app.kubernetes.io/instance=jenkins   # 谨慎：删除历史数据
 ```
+
+`helm uninstall` 默认保留 PVC。只有在备份已验证、明确要永久清除历史数据时，才单独执行 PVC 删除；不要把删除命令放进常规卸载脚本。
 
 ## 8. 常见问题
 

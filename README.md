@@ -121,44 +121,48 @@ curl -fsS http://127.0.0.1:5000/health/live
 ### Kubernetes：渲染、部署、排障、回滚
 
 ```bash
-# 1. 渲染清单到 jenkins 目录（deploy/jenkins/rendered/，已 gitignore）
-mkdir -p deploy/jenkins/rendered
-kubectl kustomize deploy/k8s/overlays/staging > deploy/jenkins/rendered/staging.yaml
+# 1. 确认目标集群并准备 staging 命名空间
+kubectl config current-context
+kubectl apply -f deploy/k8s/overlays/staging/namespace.yaml
 
-# 2. 应用（测试环境，namespace: webapp-staging）
-kubectl apply -f deploy/jenkins/rendered/staging.yaml
+# 2. 准备不可变镜像信息（替换 registry、tag 与 digest）
+export WORKSPACE="$PWD"
+export FULL_IMG="registry.example.com/webapp:${GIT_COMMIT:-manual}"
+printf '%s' 'sha256:<64位镜像摘要>' > .image-digest
 
-# 3. 等待滚动发布完成
-kubectl -n webapp-staging rollout status deployment/webapp --timeout=180s
+# 3. 渲染、diff、应用并等待 rollout
+sh ci/release.sh deploy webapp-staging deploy/k8s/overlays/staging
 
 # 4. 查看对象与日志
 kubectl -n webapp-staging get pods,svc,ingress
 kubectl -n webapp-staging logs deploy/webapp --tail=100
 
-# 5. 本地访问验证
+# 5. 本地访问验证（当前终端保持运行）
 kubectl -n webapp-staging port-forward svc/webapp 8080:80
+
+# 另开一个终端执行
 curl -fsS http://127.0.0.1:8080/health/ready
 
 # 6. 回滚到上一版本
-kubectl -n webapp-staging rollout undo deployment/webapp
+sh ci/release.sh rollback webapp-staging
 ```
 
-生产环境把路径和命名空间换成 `overlays/production`、`webapp`，并按流程先审批再执行。手工部署前需要把清单里的 `IMAGE_PLACEHOLDER` 替换成真实镜像 digest：
+生产环境使用同一 digest，必须在 staging 验收和人工审批后执行：
 
 ```bash
-kubectl kustomize deploy/k8s/overlays/production > deploy/jenkins/rendered/production.yaml
-sed "s|IMAGE_PLACEHOLDER|registry.example.com/webapp@sha256:<digest>|g" deploy/jenkins/rendered/production.yaml | kubectl apply -f -
-kubectl -n webapp rollout status deployment/webapp --timeout=300s
+sh ci/release.sh deploy webapp deploy/k8s/overlays/production
 ```
 
-Helm 方式（可选）：
+Helm 方式（可选且独立）：
 
 ```bash
 helm upgrade --install webapp deploy/helm/webapp \
   --namespace webapp-staging --create-namespace \
   --set image.repository=registry.example.com/webapp \
-  --set image.tag=sha256-<digest>
+  --set-string image.tag=sha256-REPLACE_WITH_DIGEST
 ```
+
+Helm 与 Kustomize 会管理同名对象，必须二选一；不要用 Helm 接管已经由 Kustomize 发布的环境。
 
 逐项说明见 [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)。
 

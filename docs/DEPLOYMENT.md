@@ -111,41 +111,47 @@ buildctl-daemonless.sh build --frontend dockerfile.v0 \
 Rootless BuildKit 使用 Jenkins 注入的仓库凭据，不使用 privileged、不挂载宿主机 socket。它需要 user namespace 和专用构建安全策略，不能仅替换镜像就保证兼容；详见 [前置条件与验收](PIPELINE-HARDENING.md)。
 
 ## 5. 部署到 Kubernetes
+
+主发布只使用 Kustomize overlay，并以不可变 digest 部署。以下 PowerShell 示例会先渲染、检查占位符、执行 diff，再 apply；不要先应用含 `IMAGE_PLACEHOLDER` 的清单，也不要用 `kubectl set image` 绕开 Git 中的期望状态。
+
 ```powershell
-kubectl apply -k deploy/k8s
-kubectl -n webapp set image deployment/webapp webapp="$env:ACR_REGISTRY/$env:ACR_NAMESPACE/webapp:$env:IMAGE_TAG"
-kubectl -n webapp rollout status deployment/webapp --timeout=180s
+$env:FULL_IMG = "$env:ACR_REGISTRY/$env:ACR_NAMESPACE/webapp:$env:GIT_COMMIT"
+Set-Content -NoNewline .image-digest 'sha256:<64位镜像摘要>'
+bash ci/release.sh deploy webapp deploy/k8s/overlays/production
 kubectl -n webapp get pods,svc,ingress
 ```
 
-- `set image` 中的 `webapp` 是容器名，示例与清单保持一致；如不同，先 `kubectl -n webapp get deployment webapp -o yaml` 确认。
+- 执行前用 `kubectl config current-context` 确认目标集群；生产发布必须经过审批。
+- `.image-digest` 只保存 `sha256:...`，`FULL_IMG` 需包含任意 tag，脚本会去掉 tag 并组合为不可变的 `image@sha256:...`。
 - 测试环境使用独立命名空间 `webapp-staging`，Jenkins 在人工批准前只会改动它，不会触碰生产：
 
 ```powershell
-kubectl apply -k deploy/k8soverlays/staging/namespace.yaml
-kubectl kustomize deploy/k8s/overlays/staging | kubectl apply -f -
-kubectl -n webapp-staging rollout status deployment/webapp --timeout=180s
+kubectl apply -f deploy/k8s/overlays/staging/namespace.yaml
+bash ci/release.sh deploy webapp-staging deploy/k8s/overlays/staging
 ```
 
 - 在 Ingress 中配置域名与 TLS Secret `webapp-tls`，并把 DNS 指向 Ingress Controller。
 - `/metrics` 已在 Ingress 层拒绝公网访问，只允许集群内 Prometheus 抓取；需要临时排查时用 `kubectl port-forward`。
 - Jenkins 流水线通过 `ci/release.sh` 渲染 overlay 后执行 diff/apply，并用 `image@sha256:<digest>` 部署（digest 由 BuildKit metadata 提取）。管理员须预先创建 Namespace；ConfigMap、Ingress、HPA、PDB、NetworkPolicy 的变更随发布应用，但自动恢复仅恢复应用镜像。
-- 如使用 Helm/GitOps，可用 `helm upgrade` 替代 `kubectl apply`；首次部署若因依赖顺序失败，确认 namespace、Secret、ConfigMap、PVC 已存在后重新 `kubectl apply -k deploy/k8s`。
+- Helm 仅用于独立的可选安装；一旦选择 Helm，就由 Helm 独占该 release 的升级与回滚，不能再对同一批对象执行 Kustomize apply。
 
 ### 使用 Helm 部署（可选）
 
 `deploy/helm/webapp` 与 `deploy/k8s` 管理同一批资源，二选一：
 
 ```powershell
+$env:IMAGE_REPOSITORY = 'registry.example.com/webapp'
+$env:IMAGE_TAG = 'sha256-REPLACE_WITH_DIGEST'
 helm upgrade --install webapp deploy/helm/webapp -n webapp --create-namespace `
-  --set image.tag="$(git rev-parse --short HEAD)" `
+  --set-string image.repository="$env:IMAGE_REPOSITORY" `
+  --set-string image.tag="$env:IMAGE_TAG" `
   --set ingress.host="app.example.com"
 kubectl -n webapp rollout status deployment/webapp --timeout=180s
 helm history webapp -n webapp
 helm rollback webapp 1 -n webapp
 ```
 
-`fullnameOverride` 固定为 `webapp`，因此 `kubectl set image deployment/webapp` 与 Helm 发布可以混用。
+`fullnameOverride` 固定为 `webapp` 只用于稳定资源名，不代表 Helm 与 `kubectl set image` 可以混用。Helm 管理的资源必须通过 `helm upgrade/rollback` 变更。
 
 ## 6. 健康检查与回滚
 ```powershell
@@ -249,10 +255,11 @@ Authorization: token $GITHUB_TOKEN
 `deploy/k8s/mysql-backup-cronjob.yaml` 提供每日 `mysqldump` 备份（Asia/Shanghai 03:30；生成压缩包和校验和，异机验证后另行执行保留清理）：
 
 ```powershell
-kubectl apply -k deploy/k8smysql.yaml
-kubectl apply -k deploy/k8smysql-backup-cronjob.yaml
+kubectl apply -f deploy/k8s/mysql.yaml
+kubectl apply -f deploy/k8s/mysql-backup-cronjob.yaml
 kubectl -n webapp get cronjob,pods -l app=mysql-backup
 kubectl -n webapp create job --from=cronjob/mysql-backup backup-manual
+kubectl -n webapp wait --for=condition=complete job/backup-manual --timeout=10m
 kubectl -n webapp logs job/backup-manual
 ```
 

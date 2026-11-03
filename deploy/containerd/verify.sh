@@ -1,10 +1,18 @@
 #!/usr/bin/env bash
-# containerd 只读校验：服务、CRI socket、crictl info、cgroup 驱动、pause 镜像拉取。
+# containerd 校验：服务、CRI socket、crictl info、cgroup 驱动；--pull 额外拉取 pause 镜像。
 #
-#   sudo ./deploy/containerd/verify.sh
+#   sudo ./deploy/containerd/verify.sh [--pull]
 #
-# 只读操作，不会修改节点配置；失败项以非 0 退出码结束，便于放进节点巡检。
+# 默认只读且不会修改节点配置；失败项以非 0 退出码结束，便于放进节点巡检。
 set -uo pipefail
+
+PULL_CHECK=0
+case "${1:-}" in
+  "") ;;
+  --pull) PULL_CHECK=1 ;;
+  -h|--help) echo "usage: $0 [--pull]"; exit 0 ;;
+  *) echo "unknown option: $1" >&2; echo "usage: $0 [--pull]" >&2; exit 2 ;;
+esac
 
 FAILED=0
 ok()   { echo "  [OK]   $*"; }
@@ -50,7 +58,9 @@ else
 fi
 
 echo "==> 5. pause 镜像"
-if command -v crictl >/dev/null 2>&1; then
+if [ "${PULL_CHECK}" -eq 0 ]; then
+  warn "跳过网络拉取（如需验证请使用 --pull）"
+elif command -v crictl >/dev/null 2>&1; then
   if crictl --runtime-endpoint "unix://${SOCK}" pull "${PAUSE}" >/dev/null 2>&1; then
     ok "pause 镜像可拉取：${PAUSE}"
   else

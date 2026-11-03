@@ -2,13 +2,14 @@
 # Run from repository root. All releases require an immutable image reference.
 set -eu
 
+workspace=${WORKSPACE:-$(pwd)}
 action=${1:?usage: release.sh deploy|rollback namespace overlay}
 namespace=${2:?namespace required}
 deployment=${K8S_DEPLOY:-webapp}
-state="$WORKSPACE/.release-$namespace"
+state="$workspace/.release-$namespace"
 
 image_ref() {
-    digest=$(cat "$WORKSPACE/.image-digest")
+    digest=$(cat "$workspace/.image-digest")
     printf '%s\n' "$digest" | grep -Eq '^sha256:[0-9a-f]{64}$' || {
         echo 'Invalid or missing image digest' >&2; exit 1;
     }
