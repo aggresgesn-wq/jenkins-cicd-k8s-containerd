@@ -16,8 +16,3 @@ updates:
     directory: /
     schedule:
       interval: weekly
-
-  - package-ecosystem: docker
-    directory: /webapp
-    schedule:
-      interval: monthly
