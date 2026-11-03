@@ -1,4 +1,4 @@
-> 状态更新（2026-11-02）：本文描述加固候选方案，未由 #53 执行。当前实跑基线为 webapp/Jenkinsfile（Gitee 主源 / Gitea 备用拉取 + nerdctl/BuildKit）；参见根目录 README 和 docs/evidence/build-53/。
+> 状态更新（2026-11-02）：本文描述加固候选方案，未由 #53 执行。当前实跑基线为 webapp/Jenkinsfile（Gitea 检出（应用源自 Gitee） + nerdctl/BuildKit）；参见根目录 README 和 docs/evidence/build-53/。
 
 # 部署指南
 
@@ -112,7 +112,7 @@ Rootless BuildKit 使用 Jenkins 注入的仓库凭据，不使用 privileged、
 
 ## 5. 部署到 Kubernetes
 ```powershell
-kubectl apply -f deploy/k8s/
+kubectl apply -k deploy/k8s
 kubectl -n webapp set image deployment/webapp webapp="$env:ACR_REGISTRY/$env:ACR_NAMESPACE/webapp:$env:IMAGE_TAG"
 kubectl -n webapp rollout status deployment/webapp --timeout=180s
 kubectl -n webapp get pods,svc,ingress
@@ -122,7 +122,7 @@ kubectl -n webapp get pods,svc,ingress
 - 测试环境使用独立命名空间 `webapp-staging`，Jenkins 在人工批准前只会改动它，不会触碰生产：
 
 ```powershell
-kubectl apply -f deploy/k8s/overlays/staging/namespace.yaml
+kubectl apply -k deploy/k8soverlays/staging/namespace.yaml
 kubectl kustomize deploy/k8s/overlays/staging | kubectl apply -f -
 kubectl -n webapp-staging rollout status deployment/webapp --timeout=180s
 ```
@@ -130,7 +130,7 @@ kubectl -n webapp-staging rollout status deployment/webapp --timeout=180s
 - 在 Ingress 中配置域名与 TLS Secret `webapp-tls`，并把 DNS 指向 Ingress Controller。
 - `/metrics` 已在 Ingress 层拒绝公网访问，只允许集群内 Prometheus 抓取；需要临时排查时用 `kubectl port-forward`。
 - Jenkins 流水线通过 `ci/release.sh` 渲染 overlay 后执行 diff/apply，并用 `image@sha256:<digest>` 部署（digest 由 BuildKit metadata 提取）。管理员须预先创建 Namespace；ConfigMap、Ingress、HPA、PDB、NetworkPolicy 的变更随发布应用，但自动恢复仅恢复应用镜像。
-- 如使用 Helm/GitOps，可用 `helm upgrade` 替代 `kubectl apply`；首次部署若因依赖顺序失败，确认 namespace、Secret、ConfigMap、PVC 已存在后重新 `kubectl apply -f deploy/k8s/`。
+- 如使用 Helm/GitOps，可用 `helm upgrade` 替代 `kubectl apply`；首次部署若因依赖顺序失败，确认 namespace、Secret、ConfigMap、PVC 已存在后重新 `kubectl apply -k deploy/k8s`。
 
 ### 使用 Helm 部署（可选）
 
@@ -246,11 +246,11 @@ Authorization: token $GITHUB_TOKEN
 
 ### 8.1 数据库备份
 
-`deploy/k8s/mysql-backup-cronjob.yaml` 提供每日 `mysqldump` 备份（03:30，保留 7 天）：
+`deploy/k8s/mysql-backup-cronjob.yaml` 提供每日 `mysqldump` 备份（Asia/Shanghai 03:30；生成压缩包和校验和，异机验证后另行执行保留清理）：
 
 ```powershell
-kubectl apply -f deploy/k8s/mysql.yaml
-kubectl apply -f deploy/k8s/mysql-backup-cronjob.yaml
+kubectl apply -k deploy/k8smysql.yaml
+kubectl apply -k deploy/k8smysql-backup-cronjob.yaml
 kubectl -n webapp get cronjob,pods -l app=mysql-backup
 kubectl -n webapp create job --from=cronjob/mysql-backup backup-manual
 kubectl -n webapp logs job/backup-manual

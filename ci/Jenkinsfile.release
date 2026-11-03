@@ -1,0 +1,100 @@
+// Trusted infrastructure repository only. This Job never checks out application code.
+pipeline {
+    agent {
+        kubernetes {
+            yaml '''
+apiVersion: v1
+kind: Pod
+spec:
+  serviceAccountName: jenkins-release
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 1000
+    fsGroup: 1000
+  containers:
+  - name: kubectl
+    image: swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/bitnami/kubectl:1.29.3-debian-12-r3
+    command: ['cat']
+    tty: true
+    securityContext:
+      allowPrivilegeEscalation: false
+      capabilities: {drop: [ALL]}
+    resources:
+      requests: {cpu: 100m, memory: 128Mi}
+      limits: {cpu: 500m, memory: 512Mi}
+'''
+        }
+    }
+    options {
+        skipDefaultCheckout(true)
+        disableConcurrentBuilds()
+        timestamps()
+        timeout(time: 30, unit: 'MINUTES')
+        buildDiscarder(logRotator(numToKeepStr: '30', artifactNumToKeepStr: '30'))
+    }
+    parameters {
+        string(name: 'IMAGE_DIGEST', defaultValue: '', description: '已推送且通过检查的 sha256:...，不接受 tag')
+        choice(name: 'DEPLOY_ENV', choices: ['staging', 'production'])
+    }
+    environment {
+        K8S_DEPLOY = 'webapp'
+    }
+    stages {
+        stage('准备可信部署配置') {
+            steps {
+                deleteDir()
+                checkout scm
+                script {
+                    // These two settings are administrator-owned Job environment variables, not build parameters.
+                    if (!(params.IMAGE_DIGEST ==~ /sha256:[0-9a-f]{64}/)) { error('必须提供合法 digest') }
+                    if (!(env.APP_IMAGE_REPOSITORY ==~ /[a-z0-9.-]+(:[0-9]+)?\/[a-z0-9._\/-]+/)) {
+                        error('管理员必须设置 APP_IMAGE_REPOSITORY（不含 tag/digest）')
+                    }
+                    if (params.DEPLOY_ENV == 'production' && !env.RELEASE_APPROVERS?.trim()) {
+                        error('生产发布必须配置 RELEASE_APPROVERS')
+                    }
+                    env.FULL_IMG = "${env.APP_IMAGE_REPOSITORY}:release"
+                    writeFile file: '.image-digest', text: params.IMAGE_DIGEST + '\n'
+                }
+            }
+        }
+        stage('staging 发布与就绪验证') {
+            steps {
+                container('kubectl') {
+                    sh 'sh ci/release.sh deploy webapp-staging deploy/k8s/overlays/staging'
+                }
+            }
+        }
+        stage('生产审批') {
+            when { expression { params.DEPLOY_ENV == 'production' } }
+            steps {
+                timeout(time: 10, unit: 'MINUTES') {
+                    input message: "确认发布 ${env.APP_IMAGE_REPOSITORY}@${params.IMAGE_DIGEST}？请先核对 staging 访问结果。",
+                          submitter: env.RELEASE_APPROVERS, ok: '发布'
+                }
+            }
+        }
+        stage('生产发布与就绪验证') {
+            when { expression { params.DEPLOY_ENV == 'production' } }
+            steps {
+                container('kubectl') { sh 'sh ci/release.sh deploy webapp deploy/k8s/overlays/production' }
+            }
+        }
+    }
+    post {
+        unsuccessful {
+            script {
+                if (fileExists('.release-webapp/started')) {
+                    container('kubectl') {
+                        def rc = sh(script: 'sh ci/release.sh rollback webapp', returnStatus: true)
+                        if (rc != 0) { echo 'ERROR: 自动恢复未完成，需人工处置；检查归档记录' }
+                    }
+                }
+            }
+        }
+        cleanup {
+            archiveArtifacts artifacts: '.image-digest,.release-*/previous-image,.release-*/target-image,.release-*/commit,.release-*/result,.release-*/rollout.txt', allowEmptyArchive: true
+            cleanWs()
+        }
+    }
+}

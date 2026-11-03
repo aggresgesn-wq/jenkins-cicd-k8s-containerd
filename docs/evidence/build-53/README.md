@@ -2,7 +2,7 @@
 
 来源：用户于 2026-11-02 提供的截图、控制台文本、Jenkinsfile 和 dockerfile。未直接连接 Jenkins 取证。
 
-- 结果：`Finished: SUCCESS`；SCM 为内网 Gitea main（Gitee 的备用拉取源，当时因网络选择该链路）。
+- 结果：`Finished: SUCCESS`；SCM 为内网 Gitea main。
 - commit：`caa95a0eb76b2046eb9ed2acdbae54133971133f`。
 - Agent namespace：`jenkins-agent`；节点选择：`k8s-master`。
 - #53 阶段耗时：SCM 4s，第一阶段 359ms，依赖 1min 0s，构建 4min 13s，部署占位 61ms，post 123ms。页面平均耗时不是 #53 精确总耗时，不能据此声称性能优化比例。

@@ -182,11 +182,11 @@ kubectl -n webapp get ingress webapp
 
 ### 7.3 打开 Secure Cookie
 
-确认 HTTPS 已经可以正常访问后，把 `deploy/k8s/configmap.yaml` 中的 `SESSION_COOKIE_SECURE`
+确认 HTTPS 已经可以正常访问后，把 `deploy/k8s/base/configmap.yaml` 中的 `SESSION_COOKIE_SECURE`
 改为 `"true"`，再 apply 并重建 Pod（`envFrom` 注入的环境变量不会热更新）：
 
 ```bash
-# 修改 deploy/k8s/configmap.yaml 后
+# 修改 deploy/k8s/base/configmap.yaml 后
 kubectl apply -k deploy/k8s
 kubectl -n webapp rollout restart deployment/webapp
 kubectl -n webapp rollout status deployment/webapp --timeout=180s

@@ -71,7 +71,7 @@
 
 ![历史构建视图](images/jenkins/legacy/01-gitea-build-stages.png)
 
-改造前的 4 阶段流水线（当时从内网 Gitea 备用源拉取）：
+改造前的 4 阶段流水线（当时从内网 Gitea 应用仓库拉取）：
 
 ```text
 Checkout SCM → 1. 拉取Gitea源码 → 2. Python 安装依赖(uv) → 3. 构建镜像 → 4. K8s一键部署

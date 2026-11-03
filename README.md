@@ -1,25 +1,29 @@
 # 三节点 Kubernetes 云计算运维与 Jenkins 持续集成实践
 
-基于 **一个三节点 Kubernetes 集群 + 一台 NFS/Gitea 虚拟机**的运维实验项目。Jenkins 动态创建 Agent Pod，从 Gitee 检出 Flask/Vue 应用（内网 Gitea 作为国内网络不佳时的备用拉取源），使用 nerdctl + BuildKit 构建镜像，由 containerd 管理节点容器与镜像。GitHub 保存项目代码、部署模板、运行证据和运维文档。
+基于 **一个三节点 Kubernetes 集群 + 一台 NFS/Gitea 虚拟机**的运维实验项目。Jenkins 动态创建 Agent Pod，从内网 Gitea 检出源自 Gitee 的 Flask/Vue 示例应用，使用 nerdctl + BuildKit 构建镜像，由 containerd 管理节点容器与镜像。GitHub 保存项目代码、部署模板、运行证据和运维文档。
 
 **最近提供的真实运行记录：Jenkins webapp #53，2026-11-02，SUCCESS。** 已验证代码检出、依赖安装、前端打包、镜像构建与本地导入。该版本没有执行镜像推送或 Kubernetes 自动发布；“K8s一键部署”阶段仍是占位输出。
 
 ![Jenkins build 53 成功阶段视图](docs/images/jenkins/07-build-53-success.png)
+
+## 发布设计
+
+主发布统一使用 **Kustomize**，入口为 [独立发布 Job](ci/Jenkinsfile.release)。Helm 仅作可选安装示例，不与 Kustomize 同时管理同一套资源。发布身份、步骤、恢复和证据要求见 [发布与恢复规程](docs/RELEASE-RUNBOOK.md)。新流程尚待集群验收。
 
 ## 实际架构
 
 ![实际环境与交付边界](docs/images/architecture.svg)
 
 - Kubernetes：3 个节点；日志确认构建 Pod 调度到 `k8s-master`，其余节点名称、资源和角色待填写资产清单。
-- 独立 VM：承载 Gitea（备用拉取源）与 NFS；具体哪些 PVC 使用 NFS 需要现场清单确认。
-- Gitee：示例应用源码主源，CI/CD 以它为准；国内可直连，作为默认拉取地址。
-- Gitea：部署在内网 VM，是 Gitee 的镜像/备用拉取源；Gitee 网络不稳定或不可达时切到 Gitea。
-- #53 当时从内网 Gitea 拉取并成功构建，验证的是备用链路；GitHub 仅作展示，Gitee → Gitea 的自动同步尚未证实。
+- 独立 VM：承载 Gitea与 NFS；具体哪些 PVC 使用 NFS 需要现场清单确认。
+- Gitee：示例应用的上游来源，不等于当前 Jenkins 的实际检出地址。
+- Gitea：部署在内网 VM，托管引入后的应用代码，是 #53 实际检出地址。
+- GitHub：维护和展示流水线、部署配置、运维工具与文档；没有证实三个平台之间存在自动同步或容灾切换。
 - Jenkins：动态 Agent 包含 python、nerdctl、buildkitd、jnlp；#53 位于 `jenkins-agent` 命名空间。
 - 当前构建绑定节点，使用 privileged sidecar 和宿主机 containerd socket，仅适合可信实验代码。
 - NFS/Gitea 同机属于单点依赖；三节点不等于控制平面或存储已实现高可用。
 
-**代码来源**：示例应用主源在 Gitee，Jenkins 默认从 Gitee 拉取；内网 VM 上的 Gitea 是备用拉取源，Gitee 网络不稳定或不可达时切换。#53 因当时网络状况从 Gitea 拉取，属于备用链路生效；两者内容一致，但自动同步方式尚未验证。
+**代码来源**：Gitee 是应用上游，Gitea 是内网应用仓库，GitHub 是工程项目仓库。三者职责不同，不描述为主备切换。
 
 ## 应用界面
 
@@ -53,7 +57,7 @@ Flask + Vue 权限管理系统，覆盖登录、用户 / 角色 / 机构管理�
 
 | 能力 | 当前状态 | 依据 |
 | --- | --- | --- |
-| Gitee 主源 / Gitea 备用 → Jenkins 动态 Agent | 备用链路已运行 | #53 控制台（从 Gitea 拉取） |
+| Gitea → Jenkins 动态 Agent | 已运行 | #53 控制台（从 Gitea 拉取） |
 | 依赖安装、Vue 打包、镜像构建 | 已运行，有构建告警 | Loaded image 与 SUCCESS |
 | NFS/Gitea VM、三节点集群 | 用户确认的环境 | [资产模板](ops/inventory.example.yaml)，待补巡检报告 |
 | 镜像推送、K8s 发布、健康检查 | #53 未执行 | 部署阶段只有 echo |
@@ -77,16 +81,17 @@ Flask + Vue 权限管理系统，覆盖登录、用户 / 角色 / 机构管理�
 
 ## 复现入口
 
-#53 使用的 Gitea 备用仓库将 Jenkinsfile、dockerfile、pyproject.toml 放在根目录（与 Gitee 主源布局一致）；本仓库放在 webapp/ 下。**修改 Script Path 不会自动改变工作目录。** 本次只导入两个文件与日志，Gitea commit `caa95a0…` 的整套源码没有同步到这里，不能把 #53 当作当前 GitHub HEAD 的构建证明。
+#53 使用的 Gitea 应用仓库将 Jenkinsfile、dockerfile、pyproject.toml 放在根目录；本仓库放在 webapp/ 下。**修改 Script Path 不会自动改变工作目录。** 本次只导入两个文件与日志，Gitea commit `caa95a0…` 的整套源码没有同步到这里，不能把 #53 当作当前 GitHub HEAD 的构建证明。
 
-保留现有 Gitea 备用 Job 时使用原始文件。从 GitHub 新建实验 Job 时，配置 Pipeline script from SCM、当前仓库、main 分支，Script Path 选择 `ci/Jenkinsfile.lab`。它会进入 webapp/ 后构建，首次执行仍需验证。默认原始 dockerfile 使用 `python start.py`，与当前 GitHub 应用的生产运行要求不同；发布前使用并验证 production 镜像。
+保留现有 Gitea Job 时使用原始文件。从 GitHub 新建实验 Job 时，配置 Pipeline script from SCM、当前仓库、main 分支，Script Path 选择 `ci/Jenkinsfile.lab`。它会进入 webapp/ 后构建，首次执行仍需验证。默认原始 dockerfile 使用 `python start.py`，与当前 GitHub 应用的生产运行要求不同；发布前使用并验证 production 镜像。
 
 原文件固定 IP 是当时网络排障的临时措施，不能保证长期有效；先检查节点 DNS、CoreDNS 与代理配置，见运维手册。
 
 ```bash
 # 只读巡检：不读取 Secret/日志，不修改集群
 python ops/inspect_cluster.py --context YOUR_LAB_CONTEXT --expected-nodes 3 --output reports/cluster-health.json
-# 本地测试
+# 本地测试（ops 测试需要 YAML 解析器）
+python -m pip install PyYAML==6.0.3
 python -m unittest discover -s ops/tests -v
 python -m unittest discover -s ci/tests -v
 ```

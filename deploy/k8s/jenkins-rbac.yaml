@@ -1,4 +1,5 @@
-# Jenkins 构建 Pod 使用的最小权限 RBAC
+# Jenkins 候选发布 Pod 的兼容 RBAC（仍有 Deployment 写入与 exec 权限）
+# 不适用于不可信构建；禁止读取 Secret 并不代表无法通过工作负载间接获取 Secret。
 #
 # 说明：
 #   * ServiceAccount 必须与 Jenkins Agent Pod 处于同一命名空间（默认 jenkins）；
@@ -29,8 +30,11 @@ rules:
     resources: ["replicasets"]
     verbs: ["get", "list", "watch"]
   - apiGroups: [""]
-    resources: ["services", "configmaps", "persistentvolumeclaims", "serviceaccounts", "pods", "pods/log", "endpoints"]
+    resources: ["services", "configmaps", "persistentvolumeclaims", "serviceaccounts"]
     verbs: ["get", "list", "watch", "create", "update", "patch"]
+  - apiGroups: [""]
+    resources: ["pods", "pods/log", "endpoints"]
+    verbs: ["get", "list", "watch"]
   - apiGroups: [""]
     resources: ["pods/exec"]
     verbs: ["create", "get"]
@@ -71,8 +75,11 @@ rules:
     resources: ["replicasets"]
     verbs: ["get", "list", "watch"]
   - apiGroups: [""]
-    resources: ["services", "configmaps", "persistentvolumeclaims", "serviceaccounts", "pods", "pods/log", "endpoints"]
+    resources: ["services", "configmaps", "persistentvolumeclaims", "serviceaccounts"]
     verbs: ["get", "list", "watch", "create", "update", "patch"]
+  - apiGroups: [""]
+    resources: ["pods", "pods/log", "endpoints"]
+    verbs: ["get", "list", "watch"]
   - apiGroups: [""]
     resources: ["pods/exec"]
     verbs: ["create", "get"]

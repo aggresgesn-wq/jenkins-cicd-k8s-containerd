@@ -1,14 +1,14 @@
 # 实际实验环境与架构边界
 
-用户于 2026-11-02 确认：一个 Kubernetes 集群、三个节点，另有一台 VM 提供 NFS 与 Gitea（Gitee 的备用拉取源）。不是三个独立集群。节点角色、资源和版本以现场巡检为准。
+用户于 2026-11-02 确认：一个 Kubernetes 集群、三个节点，另有一台 VM 提供 NFS 与 Gitea。不是三个独立集群。节点角色、资源和版本以现场巡检为准。
 
 ![架构](images/architecture.svg)
 
 ## 已证实的执行链
 
-Jenkins 从内网 Gitea（Gitee 备用拉取源）获取 Jenkinsfile → 创建动态 Agent → 检出 caa95a0eb76b2046eb9ed2acdbae54133971133f → 安装依赖 → nerdctl/BuildKit 构建 → 本地导入镜像 → SUCCESS。
+Jenkins 从内网 Gitea获取 Jenkinsfile → 创建动态 Agent → 检出 caa95a0eb76b2046eb9ed2acdbae54133971133f → 安装依赖 → nerdctl/BuildKit 构建 → 本地导入镜像 → SUCCESS。
 
-镜像名字包含 ACR 地址不等于上传 ACR。原始脚本没有 push，部署 stage 只有 echo，因此图中 registry 和发布使用虚线。Gitee 是应用主源，内网 Gitea 是备用拉取源；GitHub 仅作展示，三者之间的自动同步未证实。
+镜像名字包含 ACR 地址不等于上传 ACR。原始脚本没有 push，部署 stage 只有 echo，因此图中 registry 和发布使用虚线。Gitee 是应用上游来源，内网 Gitea 托管应用代码；GitHub 仅作展示，三者之间的自动同步未证实。
 
 ## 运维边界
 

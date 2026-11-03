@@ -55,13 +55,6 @@ spec:
     resources:
       limits: {cpu: "500m", memory: "512Mi"}
       requests: {cpu: "100m", memory: "128Mi"}
-  - name: helm
-    image: swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/alpine/helm:3.20.2
-    command: ['/bin/sh', '-c', 'sleep infinity']
-    tty: true
-    resources:
-      limits: {cpu: "200m", memory: "256Mi"}
-      requests: {cpu: "50m", memory: "64Mi"}
   - name: kubeconform
     image: ghcr.io/yannh/kubeconform:v0.6.7-alpine
     command: ['/bin/sh', '-c', 'sleep infinity']
@@ -232,7 +225,7 @@ PY
             }
         }
 
-        stage('5. 清单校验（helm/kubeconform/kubectl diff）') {
+        stage('5. 清单校验（Kustomize/kubeconform）') {
             steps {
                 container('kubectl') {
                     sh '''
@@ -251,13 +244,7 @@ PY
                           -kubernetes-version 1.29.0 staging-rendered.yaml production-rendered.yaml
                     '''
                 }
-                container('helm') {
-                    sh '''
-                        set -e
-                        cd "$WORKSPACE"
-                        helm lint deploy/helm/webapp
-                    '''
-                }
+
             }
         }
 
