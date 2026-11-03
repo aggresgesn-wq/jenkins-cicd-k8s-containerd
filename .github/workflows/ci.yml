@@ -29,6 +29,7 @@ jobs:
           chmod +x kubectl
           echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
       - run: sh -n ci/release.sh
+      - run: sh -n ops/e2e_drill.sh
       - run: python -m unittest discover -s ci/tests -v
       - run: python -m unittest discover -s ops/tests -v
   backend:

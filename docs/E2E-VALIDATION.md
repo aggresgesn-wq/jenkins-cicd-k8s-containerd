@@ -28,6 +28,15 @@
 
 ## 2. staging 发布与验证
 
+发布后用脚本采集证据（推荐）：
+
+```bash
+chmod +x ops/e2e_drill.sh
+./ops/e2e_drill.sh snapshot webapp-staging webapp docs/evidence/e2e-staging.md
+```
+
+等价的手工命令：
+
 ```bash
 kubectl -n webapp-staging rollout status deployment/webapp --timeout=180s
 kubectl -n webapp-staging get pods -o wide
@@ -57,6 +66,22 @@ kubectl -n webapp get pods
 ## 4. 失败恢复演练
 
 目标：证明发布错误镜像时能被发现，并回到**上一个精确 digest**。
+
+推荐用脚本一次完成注入、检测、回滚、对比 digest 和计时：
+
+```bash
+# 先在 staging 演练；生产需要 ALLOW_PROD=yes
+CONFIRM=yes ./ops/e2e_drill.sh drill webapp-staging webapp \
+  registry.example.com/webapp:does-not-exist docs/evidence/e2e-rollback.md
+
+# 生产演练（确认影响范围后再执行）
+CONFIRM=yes ALLOW_PROD=yes ./ops/e2e_drill.sh drill webapp webapp \
+  registry.example.com/webapp:does-not-exist docs/evidence/e2e-rollback-prod.md
+```
+
+脚本会拒绝在未设置 `CONFIRM=yes` 时执行，并拒绝在未设置 `ALLOW_PROD=yes` 时操作生产 namespace。
+
+手工步骤（与脚本等价，便于对照）：
 
 ```bash
 # 1) 记录当前正确 digest
