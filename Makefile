@@ -20,6 +20,7 @@ render: ## 渲染 staging / production 清单
 
 verify: ## 脚本语法 + 发布/巡检回归
 	sh -n ci/release.sh
+	sh -n ops/e2e_drill.sh
 	$(PY) -m unittest discover -s ci/tests
 	$(PY) -m unittest discover -s ops/tests
 
