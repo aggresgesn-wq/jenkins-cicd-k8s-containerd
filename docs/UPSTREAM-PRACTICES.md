@@ -18,12 +18,12 @@
 | --- | --- | --- |
 | 根目录 `Makefile`（`install`/`test`/`lint`/`render`/`verify`） | podinfo 的单一入口 | 新人不用猜命令，CI 与本地用同一套动作 |
 | `.pre-commit-config.yaml`（ruff、yamllint、shellcheck、hadolint、通用钩子） | cloudogu 的规范用法 | 把 lint 前移到提交前，减少 CI 往返 |
-| `.github/dependabot.yml`（pip / npm / actions / docker） | 主流开源仓库标配 | 依赖与 Action 版本不再靠人肉盯 |
+| ~~Dependabot 自动升级~~ | 主流开源仓库标配 | 已移除：会引入 `dependabot[bot]` 提交身份，改为按需手工升级 |
 | `.github/workflows/codeql.yml`（Python + JS/TS） | GitHub 原生安全扫描 | 补上静态代码扫描，和 Trivy/Syft 形成镜像内外两层 |
 | pytest 覆盖率产物（`coverage.xml` 随 JUnit 一起上传） | podinfo 的可观测测试习惯 | 测试结果不只是一行“passed”，还能看趋势 |
 | `CODEOWNERS` + PR 模板 | 成熟仓库的协作约定 | 变更有人负责、PR 有固定检查清单 |
 
-> Docker 镜像的依赖更新暂未交给 Dependabot：本仓库的构建文件名为小写 `dockerfile` / `dockerfile.production`，Dependabot 的 docker 生态只识别 `Dockerfile` / `Containerfile`，强行配置会产生失败任务。镜像基础层更新改用 Trivy 扫描结果 + 手工升级，避免制造红色检查。
+> 2026-11-03：仓库所有者要求不再出现 `dependabot[bot]`，已删除 `.github/dependabot.yml`；依赖升级改为人工评估后提交，安全公告仍可在 GitHub 的 Security 页面查看。
 
 ## 3. 明确不采纳
 
@@ -35,4 +35,4 @@
 
 - 这些改动是**工程配套**，不改变 #53 已证实的构建链路；
 - Kaniko 已归档的问题仍然存在，`ci/Jenkinsfile.hardened` 里的 BuildKit 迁移仍是待验收项；
-- 新增的 CodeQL、Dependabot 属于 GitHub 侧能力，和内网 Jenkins 无关，但能提升仓库整体质量。
+- 新增的 CodeQL 属于 GitHub 侧能力，和内网 Jenkins 无关，但能提升仓库整体质量；Dependabot 已按要求移除。
