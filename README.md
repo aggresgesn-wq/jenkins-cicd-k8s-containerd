@@ -121,11 +121,12 @@ curl -fsS http://127.0.0.1:5000/health/live
 ### Kubernetes：渲染、部署、排障、回滚
 
 ```bash
-# 1. 渲染清单（先看再应用，不落地）
-kubectl kustomize deploy/k8s/overlays/staging > /tmp/staging.yaml
+# 1. 渲染清单到 jenkins 目录（deploy/jenkins/rendered/，已 gitignore）
+mkdir -p deploy/jenkins/rendered
+kubectl kustomize deploy/k8s/overlays/staging > deploy/jenkins/rendered/staging.yaml
 
 # 2. 应用（测试环境，namespace: webapp-staging）
-kubectl apply -f /tmp/staging.yaml
+kubectl apply -f deploy/jenkins/rendered/staging.yaml
 
 # 3. 等待滚动发布完成
 kubectl -n webapp-staging rollout status deployment/webapp --timeout=180s
@@ -145,8 +146,8 @@ kubectl -n webapp-staging rollout undo deployment/webapp
 生产环境把路径和命名空间换成 `overlays/production`、`webapp`，并按流程先审批再执行。手工部署前需要把清单里的 `IMAGE_PLACEHOLDER` 替换成真实镜像 digest：
 
 ```bash
-kubectl kustomize deploy/k8s/overlays/production > /tmp/production.yaml
-sed "s|IMAGE_PLACEHOLDER|registry.example.com/webapp@sha256:<digest>|g" /tmp/production.yaml | kubectl apply -f -
+kubectl kustomize deploy/k8s/overlays/production > deploy/jenkins/rendered/production.yaml
+sed "s|IMAGE_PLACEHOLDER|registry.example.com/webapp@sha256:<digest>|g" deploy/jenkins/rendered/production.yaml | kubectl apply -f -
 kubectl -n webapp rollout status deployment/webapp --timeout=300s
 ```
 
