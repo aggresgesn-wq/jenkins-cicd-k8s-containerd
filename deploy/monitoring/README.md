@@ -1,3 +1,5 @@
+> 说明：本目录为可选能力，当前 CI/CD 主链路（Gitea/GitLab → Jenkins → K8s）**未接入**监控组件，请勿在验收中声称已启用。
+
 # 监控与告警
 
 本目录提供 webapp 的可观测性配置，应用侧已在 `/metrics` 暴露 Prometheus 指标。
