@@ -18,6 +18,12 @@ Kubernetes API Server ──▶ 节点 kubelet ──▶ containerd ──▶ Po
                                                      浏览器访问
 ```
 
+## 真实构建记录
+
+Jenkins `#53` 成功构建：Gitea 检出、依赖安装、前端打包、镜像构建均已完成；部署阶段当时是占位输出，尚未真正发布到集群。
+
+<img src="docs/images/jenkins/07-build-53-success.png" width="900" alt="Jenkins #53 成功构建"/>
+
 ## 快速开始
 
 1. Jenkins 新建 Pipeline 任务，SCM 指向 Gitea/GitLab 仓库；
