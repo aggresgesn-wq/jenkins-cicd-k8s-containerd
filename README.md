@@ -24,6 +24,16 @@ Jenkins `#53` 成功构建：Gitea 检出、依赖安装、前端打包、镜像
 
 <img src="docs/images/jenkins/07-build-53-success.png" width="900" alt="Jenkins #53 成功构建"/>
 
+## 已验证流水线（#11）
+
+真实跑通的 4 阶段流水线：Gitea 检出 → uv 安装依赖 → nerdctl/buildkit 构建镜像 → 部署占位。
+
+<img src="docs/images/jenkins/08-stage-view-verified.png" width="900" alt="Jenkins #11 阶段视图"/>
+
+- 构建 #11，SUCCESS，约 4 分 45 秒
+- 镜像：`crpi-m67ogm8wgcr0rh38.cn-hangzhou.personal.cr.aliyuncs.com/tanchenrui/webapp:da5526f`
+- 详细记录与“推送 ACR 尚未执行”的说明见 [docs/JENKINS-PIPELINE.md](docs/JENKINS-PIPELINE.md)
+
 ## 快速开始
 
 1. Jenkins 新建 Pipeline 任务，SCM 指向 Gitea/GitLab 仓库；
