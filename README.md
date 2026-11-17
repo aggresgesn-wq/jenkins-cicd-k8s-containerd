@@ -37,19 +37,105 @@ Jenkins `#53` 成功构建：Gitea 检出、依赖安装、前端打包、镜像
 ## 快速开始
 
 1. Jenkins 新建 Pipeline 任务，SCM 指向 Gitea/GitLab 仓库；
-2. Script Path 选择 `webapp/Jenkinsfile`（#53 原始文件）或 `ci/Jenkinsfile.lab`（适配本仓库目录）；
-3. 配置凭据：镜像仓库账号、集群 kubeconfig；
-4. 触发构建，流水线完成镜像构建与推送；
-5. 部署并访问：
+2. Script Path 选择 `webapp/Jenkinsfile`（#11 验证版）或 `ci/Jenkinsfile.lab`；
+3. 配置凭据：阿里云 ACR 账号、集群 kubeconfig；
+4. 触发构建，流水线完成镜像构建并推送到阿里云 ACR；
+5. 按下面的「Kubernetes 部署」发布并访问。
+
+## 推送镜像到阿里云 ACR
+
+镜像地址约定：
+
+```text
+crpi-m67ogm8wgcr0rh38.cn-hangzhou.personal.cr.aliyuncs.com/tanchenrui/webapp:<git-short-sha>
+```
+
+手动推送（Docker）：
 
 ```bash
-kubectl kustomize deploy/k8s/overlays/staging | kubectl apply -f -
+docker login crpi-m67ogm8wgcr0rh38.cn-hangzhou.personal.cr.aliyuncs.com -u <ACR_USER>
+docker tag webapp:da5526f crpi-m67ogm8wgcr0rh38.cn-hangzhou.personal.cr.aliyuncs.com/tanchenrui/webapp:da5526f
+docker push crpi-m67ogm8wgcr0rh38.cn-hangzhou.personal.cr.aliyuncs.com/tanchenrui/webapp:da5526f
+```
+
+手动推送（containerd / nerdctl）：
+
+```bash
+nerdctl login -u <ACR_USER> crpi-m67ogm8wgcr0rh38.cn-hangzhou.personal.cr.aliyuncs.com
+nerdctl tag webapp:da5526f crpi-m67ogm8wgcr0rh38.cn-hangzhou.personal.cr.aliyuncs.com/tanchenrui/webapp:da5526f
+nerdctl push crpi-m67ogm8wgcr0rh38.cn-hangzhou.personal.cr.aliyuncs.com/tanchenrui/webapp:da5526f
+```
+
+Jenkins 中推送：
+
+- 在 Jenkins 凭据里保存 ACR 用户名/密码（`Username with password`，ID 例如 `acr-credentials`）；
+- 流水线内用 `withCredentials` 注入，`nerdctl login` 后 `nerdctl push ${FULL_IMG}`；
+- 私有仓库拉取还需在命名空间创建 `docker-registry` 类型的 imagePullSecret。
+
+## Kubernetes 部署
+
+前置：kubectl 已连接集群，集群有 Ingress Controller（示例 ingress-nginx）。
+
+1）创建命名空间：
+
+```bash
+kubectl apply -f deploy/k8s/namespace.yaml                 # webapp
+kubectl apply -f deploy/k8s/overlays/staging/namespace.yaml # webapp-staging
+```
+
+2）创建 MySQL Secret 并部署 MySQL（`mysql.yaml` 固定 namespace `webapp`）：
+
+```bash
+kubectl -n webapp create secret generic mysql-secret \
+  --from-literal=MYSQL_ROOT_PASSWORD="$(openssl rand -hex 16)" \
+  --from-literal=MYSQL_PASSWORD="$(openssl rand -hex 16)"
+kubectl apply -f deploy/k8s/mysql.yaml
+
+# staging 部署时把 namespace 替换成 webapp-staging
+sed 's/namespace: webapp/namespace: webapp-staging/g' deploy/k8s/mysql.yaml | kubectl apply -f -
+```
+
+3）创建应用 Secret（键名必须与 Deployment 一致）：
+
+```bash
+kubectl -n webapp-staging create secret generic webapp-secret \
+  --from-literal=SECRET_KEY="$(openssl rand -hex 32)" \
+  --from-literal=CAPTCHA_SECRET_KEY="$(openssl rand -hex 32)" \
+  --from-literal=DATABASE_URI="mysql+mysqlconnector://webapp:REPLACE_ME@mysql:3306/authbase?charset=utf8mb4" \
+  --dry-run=client -o yaml | kubectl apply -f -
+```
+
+`REPLACE_ME` 需替换为 `mysql-secret` 中 `MYSQL_PASSWORD` 的实际值。
+
+4）渲染并应用应用清单（把 `IMAGE_PLACEHOLDER` 换成刚推送的镜像）：
+
+```bash
+IMAGE=crpi-m67ogm8wgcr0rh38.cn-hangzhou.personal.cr.aliyuncs.com/tanchenrui/webapp:da5526f
+kubectl kustomize deploy/k8s/overlays/staging \
+  | sed "s|IMAGE_PLACEHOLDER|$IMAGE|" \
+  | kubectl apply -f -
+```
+
+`base/` 会一并创建：Deployment、Service、Ingress、ConfigMap、PVC、ServiceAccount、NetworkPolicy、PDB、HPA。
+
+5）验证与访问：
+
+```bash
 kubectl -n webapp-staging rollout status deployment/webapp --timeout=180s
+kubectl -n webapp-staging get pods,svc,ingress
 kubectl -n webapp-staging port-forward svc/webapp 8080:80
 # 浏览器打开 http://127.0.0.1:8080
 ```
 
-生产环境把 `staging` 换成 `production`、命名空间换成 `webapp`。
+生产环境把 `staging` 换成 `production`、命名空间换成 `webapp`：
+
+```bash
+kubectl apply -f deploy/k8s/namespace.yaml
+IMAGE=crpi-m67ogm8wgcr0rh38.cn-hangzhou.personal.cr.aliyuncs.com/tanchenrui/webapp:da5526f
+kubectl kustomize deploy/k8s/overlays/production \
+  | sed "s|IMAGE_PLACEHOLDER|$IMAGE|" \
+  | kubectl apply -f -
+```
 
 ## 仓库结构
 
