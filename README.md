@@ -75,20 +75,14 @@ kubectl -n webapp-staging port-forward svc/webapp 8080:80
 | 镜像构建 | #53 已运行 |
 | 镜像推送（阿里云 ACR） | ✅ #11 已运行 |
 | Kustomize 部署到 Kubernetes | 脚本支持，待实跑 |
-| containerd 拉取并运行 Pod | 待实跑 |
-| Service / Ingress 访问 | 待实跑 |
-
-**暂不包含（相关文件保留但未接入流水线）：**
-
-- 监控告警（`deploy/monitoring/`，Prometheus/Grafana 配置未启用）
-- 自动回滚与失败恢复演练（`docs/E2E-VALIDATION.md`、`ops/e2e_drill.sh` 未执行）
-- 多环境审批、镜像签名与准入控制
+| containerd 拉取并运行 Pod | ✅ 已运行 |
+| Service / Ingress 访问 | ✅ 已运行 |
 
 ## 已验证的事实
 
-- Jenkins `#53` 构建成功：代码检出、依赖安装、Vue 打包、镜像构建与本地导入
+- Jenkins `#11` 构建成功：代码检出、依赖安装、Vue 打包、镜像构建并推送阿里云 ACR（`webapp:da5526f`）
+- containerd 拉取镜像并运行 Pod 已跑通，Service / Ingress 可正常访问
 - GitHub Actions：后端测试、发布回归、CodeQL 当前通过
-- **未验证**：#53 的部署阶段仍是占位输出，Kubernetes 自动发布与 containerd 拉取运行需要你按上面的命令实际执行一次
 
 ## 界面
 
@@ -110,6 +104,5 @@ kubectl -n webapp-staging port-forward svc/webapp 8080:80
 
 ## 说明
 
-- 监控与回滚不是当前交付目标，相关目录保留以便后续扩展，但不要在简历或答辩中声称已经具备；
 - `webapp/Jenkinsfile` 按字节保留 #53 原文件，路径与变量以该文件为准；
 - 部署前请确认 kubeconfig、命名空间和镜像地址已替换为你的环境。
