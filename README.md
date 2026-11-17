@@ -55,15 +55,47 @@ kubectl -n webapp-staging port-forward svc/webapp 8080:80
 
 ```text
 .
-├── webapp/                 # 示例应用（Flask + Vue）与 Jenkinsfile、Dockerfile
-├── ci/                     # 不同用途的 Jenkinsfile（lab / hardened / release）
+├── webapp/                          # Flask + Vue 示例应用
+│   ├── Jenkinsfile                  # 流水线（#11 验证版：检出 → uv 依赖 → nerdctl 构建并推送 ACR → 部署占位）
+│   ├── dockerfile                   # 多阶段：node:18 构建 UI → python:3.11 运行
+│   ├── app/                         # Flask 后端（路由、模型、RBAC）
+│   ├── ui/                          # Vue 2 + Element UI 前端
+│   └── tests/                       # pytest 用例
+├── ci/                              # 场景化 Jenkinsfile
+│   ├── Jenkinsfile.lab              # 实验环境：本地路径、简化参数
+│   ├── Jenkinsfile.hardened         # 加固版：11 阶段，含扫描与质量门禁
+│   └── Jenkinsfile.release          # 发布版：digest 部署、审批入口
 ├── deploy/
-│   ├── k8s/                # Kustomize base + staging/production overlay
-│   ├── helm/webapp/        # 可选 Helm Chart
-│   ├── jenkins/            # Jenkins 安装、JCasC、Job DSL
-│   └── containerd/         # containerd 安装与校验脚本
-├── ops/                    # 集群巡检工具与测试
-└── docs/                   # 架构、部署、操作、证据与边界说明
+│   ├── k8s/                         # K8s 清单（Kustomize）
+│   │   ├── kustomization.yaml       # 管理员入口：namespace.yaml + base
+│   │   ├── namespace.yaml           # Namespace `webapp`
+│   │   ├── secret.example.yaml      # Secret 模板（数据库/Session，勿提交真实值）
+│   │   ├── mysql.yaml               # MySQL：StatefulSet + Service
+│   │   ├── mysql-backup-cronjob.yaml# MySQL 备份：CronJob + 备份 PVC
+│   │   ├── jenkins-rbac.yaml        # SA `jenkins-deployer` + webapp/webapp-staging 的 Role/RoleBinding
+│   │   ├── jenkins-release-rbac.yaml# SA `jenkins-release`（仅受信发布 Job 使用）
+│   │   ├── base/                    # 应用基线（namespace: webapp）
+│   │   │   ├── kustomization.yaml   # 汇总下列资源
+│   │   │   ├── serviceaccount.yaml  # ServiceAccount `webapp`
+│   │   │   ├── configmap.yaml       # ConfigMap `webapp-config`（非敏感配置）
+│   │   │   ├── pvc.yaml             # PVC `webapp-uploads`（上传目录）
+│   │   │   ├── deployment.yaml      # Deployment `webapp`（镜像/探针/资源/卷）
+│   │   │   ├── service.yaml         # Service `webapp`（ClusterIP）
+│   │   │   ├── ingress.yaml         # Ingress `webapp`（域名 + TLS）
+│   │   │   ├── networkpolicy.yaml   # 默认拒绝 + 放行 webapp/mysql
+│   │   │   ├── pdb.yaml             # PodDisruptionBudget `webapp`
+│   │   │   └── hpa.yaml             # HorizontalPodAutoscaler `webapp`
+│   │   └── overlays/
+│   │       ├── staging/
+│   │       │   ├── kustomization.yaml # namespace webapp-staging；replicas=1；删 HPA；改 PDB/Ingress 域名
+│   │       │   └── namespace.yaml     # Namespace `webapp-staging`
+│   │       └── production/
+│   │           └── kustomization.yaml # namespace webapp；复用 base
+│   ├── helm/webapp/                 # 可选 Helm Chart（与 Kustomize 二选一）
+│   ├── jenkins/                     # Jenkins 部署、JCasC、Job DSL
+│   └── containerd/                  # containerd 安装、配置与校验脚本
+├── ops/                             # 集群巡检脚本与测试
+└── docs/                            # 架构、部署、运维、证据与边界说明
 ```
 
 ## 当前范围（设计 vs 实跑）
