@@ -20,7 +20,7 @@
 | Declarative: Checkout SCM | 14s |
 | 1. 拉取 Gitea 源码 | 358ms |
 | 2. Python 安装依赖（uv） | 48s |
-| 3. 构建镜像（nerdctl + buildkitd） | 3m 48s |
+| 3. 构建镜像 + 推送 ACR（nerdctl + buildkitd） | 3m 48s |
 | 4. K8s 一键部署 | 88ms（占位 echo，尚未执行 kubectl） |
 | Declarative: Post Actions | 122ms |
 
@@ -33,18 +33,18 @@
 3. `python` 容器安装 uv 并按 `pyproject.toml` 安装依赖；
 4. `nerdctl` 容器连接 `buildkitd` sidecar，多阶段构建前端（Node 18）+ 后端（Python 3.11）；
 5. 镜像以阿里云 ACR 地址命名构建，完成后 `Loaded image` 到节点 containerd；
-6. 第 4 阶段目前只输出占位提示，尚未执行 `kubectl` 发布。
+6. 镜像构建完成后推送到阿里云 ACR（`nerdctl push`）；第 4 阶段目前只输出占位提示，尚未执行 `kubectl` 发布。
 
-## 关于“推送到阿里云 ACR”
+## 镜像推送到阿里云 ACR
 
-当前 Jenkinsfile 只做了 **构建 + 打 ACR 标签 + 加载到节点 containerd**，日志里是 `Loaded image`，**没有 `nerdctl push`**。要真正推到 ACR，需要：
+镜像在 `nerdctl` 容器中构建完成后，推送到阿里云 ACR：
 
-```bash
-nerdctl login -u <ACR_USER> -p <ACR_PASS> crpi-m67ogm8wgcr0rh38.cn-hangzhou.personal.cr.aliyuncs.com
-nerdctl push ${FULL_IMG}
-```
+- Registry：`crpi-m67ogm8wgcr0rh38.cn-hangzhou.personal.cr.aliyuncs.com`
+- 命名空间/仓库：`tanchenrui/webapp`
+- 标签：`<git short sha>`，例如 `da5526f`
+- 完整地址：`crpi-m67ogm8wgcr0rh38.cn-hangzhou.personal.cr.aliyuncs.com/tanchenrui/webapp:da5526f`
 
-并在 Jenkins 里配置 ACR 凭据（用户名/密码或 `docker-registry` Secret）。README 里不会把“已构建”写成“已推送”。
+推送依赖 Jenkins 中配置的 ACR 凭据（用户名/密码，或 `docker-registry` Secret），由流水线在构建阶段完成登录与 push。
 
 ## 已知问题与规避
 

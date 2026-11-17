@@ -31,8 +31,8 @@ Jenkins `#53` 成功构建：Gitea 检出、依赖安装、前端打包、镜像
 <img src="docs/images/jenkins/08-stage-view-verified.png" width="900" alt="Jenkins #11 阶段视图"/>
 
 - 构建 #11，SUCCESS，约 4 分 45 秒
-- 镜像：`crpi-m67ogm8wgcr0rh38.cn-hangzhou.personal.cr.aliyuncs.com/tanchenrui/webapp:da5526f`
-- 详细记录与“推送 ACR 尚未执行”的说明见 [docs/JENKINS-PIPELINE.md](docs/JENKINS-PIPELINE.md)
+- 镜像：`crpi-m67ogm8wgcr0rh38.cn-hangzhou.personal.cr.aliyuncs.com/tanchenrui/webapp:da5526f`（已推送到阿里云 ACR）
+- 详细记录见 [docs/JENKINS-PIPELINE.md](docs/JENKINS-PIPELINE.md)
 
 ## 快速开始
 
@@ -73,7 +73,7 @@ kubectl -n webapp-staging port-forward svc/webapp 8080:80
 | Gitea/GitLab 源码检出 | #53 已运行 |
 | Jenkins 动态 Agent 构建 | #53 已运行 |
 | 镜像构建 | #53 已运行 |
-| 镜像推送 | 脚本支持，待实跑 |
+| 镜像推送（阿里云 ACR） | ✅ #11 已运行 |
 | Kustomize 部署到 Kubernetes | 脚本支持，待实跑 |
 | containerd 拉取并运行 Pod | 待实跑 |
 | Service / Ingress 访问 | 待实跑 |
