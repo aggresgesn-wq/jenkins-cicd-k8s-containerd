@@ -44,7 +44,7 @@
 - 标签：`<git short sha>`，例如 `da5526f`
 - 完整地址：`crpi-m67ogm8wgcr0rh38.cn-hangzhou.personal.cr.aliyuncs.com/tanchenrui/webapp:da5526f`
 
-推送依赖 Jenkins 中配置的 ACR 凭据（用户名/密码，或 `docker-registry` Secret），由流水线在构建阶段完成登录与 push。
+推送依赖 Jenkins 中 ID 为 `acr-credentials` 的 `Username with password` 凭据（与 `webapp/Jenkinsfile` 中的 `credentialsId` 一致），由构建阶段完成 `nerdctl login` 与 `nerdctl push`。
 
 ## 已知问题与规避
 

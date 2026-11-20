@@ -68,7 +68,7 @@ nerdctl push crpi-m67ogm8wgcr0rh38.cn-hangzhou.personal.cr.aliyuncs.com/tanchenr
 
 Jenkins 中推送：
 
-- 在 Jenkins 凭据里保存 ACR 用户名/密码（`Username with password`，ID 例如 `acr-credentials`）；
+- 在 Jenkins 凭据里保存 ACR 用户名/密码（`Username with password`，ID 必须为 `acr-credentials`，与 `webapp/Jenkinsfile` 的 `credentialsId` 一致）；
 - 流水线内用 `withCredentials` 注入，`nerdctl login` 后 `nerdctl push ${FULL_IMG}`；
 - 私有仓库拉取还需在命名空间创建 `docker-registry` 类型的 imagePullSecret。
 
