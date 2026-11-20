@@ -12,7 +12,7 @@ Jenkins 从内网 Gitea获取 Jenkinsfile → 创建动态 Agent → 检出 caa9
 
 ## 运维边界
 
-- 三节点提供调度与故障演练基础；控制平面/etcd 拓扑未确认，不声称高可用。
+- K8s 集群提供调度与故障演练基础；控制平面/etcd 拓扑未确认，不声称高可用。
 - NFS/Gitea 同机共享故障域，备份必须保存在其他主机或对象存储。具体挂载路径、容量与访问权限填写资产清单。
 - #53 Agent workspace 使用 emptyDir，不能据此声称 workspace 已挂载 NFS。
 - 构建绑定 k8s-master、使用 privileged sidecar 与宿主机 socket，后续应迁移专用节点并隔离部署权限。

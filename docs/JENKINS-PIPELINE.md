@@ -48,5 +48,28 @@
 
 ## 已知问题与规避
 
-- Pod 内 DNS 会污染 `jenkins.jenkins.svc.cluster.local`（解析到 198.18.x.x），导致 Agent 离线；已把 Jenkins Cloud 的 URL 改为 Service ClusterIP `http://10.96.68.92:8080`。
-- `container('kubectl')` 在该 Pod 里无法启动 `sh`（工作区权限/容器用户问题），因此真实部署阶段暂时回退为占位；后续建议把 kubectl 挂进 `python` 容器并用 SA token 调用。
+### Agent 无法连接 Jenkins（DNS 污染）
+
+- 现象：Agent Pod 内解析 `jenkins.jenkins.svc.cluster.local` 得到 `198.18.x.x`，JNLP 一直 offline。
+- 正确做法：Jenkins Cloud 的 Jenkins URL 保持 **Service DNS**：
+
+  ```text
+  http://jenkins.jenkins.svc.cluster.local:8080
+  ```
+
+  它是 Jenkins 配置项（Manage Clouds → Kubernetes → Jenkins URL，或 JCasC 的 `jenkinsUrl`），不要写死 ClusterIP。
+
+- 修复 CoreDNS（推荐）：
+
+  ```bash
+  kubectl -n kube-system get configmap coredns -o yaml
+  # 把 forward . /etc/resolv.conf 改为可靠上游，例如 223.5.5.5
+  kubectl -n kube-system rollout restart deployment/coredns
+  ```
+
+- 临时规避：仅在排障时给 Agent Pod 加 `hostAliases` 指向 Service ClusterIP，不要提交到仓库。
+- 验证：`kubectl -n jenkins exec <agent-pod> -c jnlp -- getent hosts jenkins.jenkins.svc.cluster.local` 应返回 ClusterIP，而不是 `198.18.x.x`。
+
+### kubectl 容器无法执行 sh
+
+`container('kubectl')` 在该 Pod 里无法启动 `sh`（工作区权限/容器用户问题），因此真实部署阶段暂时回退为占位；后续建议把 kubectl 挂进 `python` 容器并用 SA token 调用。

@@ -28,7 +28,7 @@
 ## 3. 明确不采纳
 
 - **Agent 挂载 Docker socket**：`Jenkins-Zero-To-Hero` 这类教程常见，但等于给构建 Pod 宿主机 root；本项目继续用 Kaniko/BuildKit 路线。
-- **引入 Jenkins X**：对三节点实验集群过重，且会把现有 Pipeline 推倒重来。
+- **引入 Jenkins X**：对单集群实验环境过重，且会把现有 Pipeline 推倒重来。
 - **直接上 Argo CD**：当前发布是 Kustomize + `kubectl apply`，没有持续协调器；等有真实多环境需求再引入，避免“图上有 GitOps、实际没有”。
 
 ## 4. 与现有能力的关系
